@@ -21,3 +21,8 @@ __pycache__/
 # OS junk
 Thumbs.db
 .DS_Store
+
+# Large FAISS vector storage files
+documents.pkl
+local_faiss.index
+processed_files.txt
