@@ -1,0 +1,23 @@
+# Virtual environments
+rag-env/
+venv/
+.env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Package metadata
+*.egg-info/
+*.dist-info/
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+
+# OS junk
+Thumbs.db
+.DS_Store
