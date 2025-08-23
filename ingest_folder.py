@@ -22,6 +22,7 @@ import pickle
 import traceback
 import math
 import gc
+import hashlib
 from io import BytesIO
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -512,13 +513,34 @@ def _l2_normalize(mat: np.ndarray) -> np.ndarray:
     return mat / norms
 
 
+def _calculate_file_hash(path: str) -> str:
+    """Calculate SHA256 hash of file contents for duplicate detection.
+
+    Args:
+        path: Full file path
+
+    Returns:
+        str: Hex digest of file hash, or empty string if file can't be read
+    """
+    try:
+        hash_sha256 = hashlib.sha256()
+        with open(path, "rb") as f:
+            # Read in chunks to handle large files efficiently
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_sha256.update(chunk)
+        return hash_sha256.hexdigest()
+    except (OSError, IOError, MemoryError) as e:
+        print(f"⚠️ Could not hash {os.path.basename(path)}: {e}")
+        return ""
+
+
 def _should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
     """Determine if a file should be skipped during processing.
 
     Args:
         path: Full file path
         ext: File extension (lowercase)
-        processed: Set of already processed file paths
+        processed: Set of already processed file hashes
 
     Returns:
         tuple[bool, str]: (should_skip, reason)
@@ -532,7 +554,9 @@ def _should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
     if ext not in CONFIG.doc_extensions:
         return True, f"unsupported file type: {ext}"
 
-    if path in processed:
+    # Check if file hash is already processed
+    file_hash = _calculate_file_hash(path)
+    if file_hash and file_hash in processed:
         return True, f"already processed"
 
     # File size
@@ -580,27 +604,41 @@ def _load_existing_index() -> tuple[Optional[faiss.Index], list[dict]]:
 
 
 def _load_processed_files() -> set[str]:
-    """Load the set of already processed files from the log."""
-    processed = set()
+    """Load the set of already processed file hashes from the log.
+
+    Expected format: "hash|filename"
+
+    Returns:
+        set[str]: Set of file hashes that have been processed
+    """
+    processed_hashes = set()
+
     if CONFIG.processed_log and CONFIG.processed_log.exists():
-        # Try UTF-8 first, fall back to system default if corrupted
         try:
-            if CONFIG.processed_log:
-                with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
-                    processed = set(line.strip() for line in f)
+            with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and "|" in line:
+                        try:
+                            file_hash, filename = line.split("|", 1)
+                            processed_hashes.add(file_hash)
+                        except ValueError:
+                            # Malformed line, skip
+                            continue
         except UnicodeDecodeError:
             print("⚠️  Converting processed_files.txt to UTF-8...")
             # Read with system default encoding and rewrite as UTF-8
-            if CONFIG.processed_log:
-                with open(
-                    CONFIG.processed_log, "r", encoding="cp1252", errors="ignore"
-                ) as f:
-                    lines = [line.strip() for line in f]
-                with open(CONFIG.processed_log, "w", encoding="utf-8") as f:
-                    for line in lines:
-                        f.write(f"{line}\n")
-            processed = set(lines)
-    return processed
+            with open(
+                CONFIG.processed_log, "r", encoding="cp1252", errors="ignore"
+            ) as f:
+                lines = [line.strip() for line in f if line.strip()]
+            with open(CONFIG.processed_log, "w", encoding="utf-8") as f:
+                for line in lines:
+                    f.write(f"{line}\n")
+            # Retry reading
+            return _load_processed_files()
+
+    return processed_hashes
 
 
 def _scan_and_process_files(
@@ -643,10 +681,13 @@ def _scan_and_process_files(
                     )
                     chunk_total += chunk_count
 
-                # Log processed file
+                # Log processed file with hash|filename format
                 if CONFIG.processed_log:
-                    with open(CONFIG.processed_log, "a", encoding="utf-8") as f:
-                        f.write(f"{path}\n")
+                    file_hash = _calculate_file_hash(path)
+                    filename = os.path.basename(path)
+                    if file_hash:
+                        with open(CONFIG.processed_log, "a", encoding="utf-8") as f:
+                            f.write(f"{file_hash}|{filename}\n")
 
                 if file_count % CONFIG.top_print_every == 0:
                     print(
