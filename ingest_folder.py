@@ -21,10 +21,10 @@ import pickle
 import traceback
 import math
 from io import BytesIO
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
 
-# ===============================
-# Runtime environment settings
-# ===============================
 # ===============================
 # Runtime environment settings
 # ===============================
@@ -44,14 +44,13 @@ os.environ["CUDA_VISIBLE_DEVICES"] = config.CUDA_VISIBLE_DEVICES
 # ===============================
 # Core Numerical / Utility
 # ===============================
+from numpy.typing import NDArray
 import numpy as np
 import psutil
 
 # ===============================
 # GPU Frameworks (order critical)
 # ===============================
-import torch
-
 import torch
 
 torch.set_num_threads(config.TORCH_NUM_THREADS)
@@ -81,54 +80,81 @@ from PIL import Image
 import fitz  # PyMuPDF
 from bs4 import BeautifulSoup
 
-DOC_EXTS = {
-    ".pdf",
-    ".html",
-    ".htm",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".tif",
-    ".tiff",
-    ".bmp",
-    ".webp",
-}
-CHUNK_SIZE = 1600  # characters (increased for email threads and complex documents)
-CHUNK_OVERLAP = 200  # characters (proportionally increased)
-EMBED_MODEL = "all-MiniLM-L6-v2"
-INDEX_PATH = "local_faiss.index"
-META_PATH = "documents.pkl"
-TOP_PRINT_EVERY = 5  # print every N files
-PROCESSED_LOG = "processed_files.txt"
-TOTAL_RAM_GB = psutil.virtual_memory().total / (1024**3)
 
-if TOTAL_RAM_GB >= 32:
-    # High-end systems
-    MAX_PIXELS = 1_800_000  # ~1.8 MP per render
-    TILE_SIZE = 1200
-elif TOTAL_RAM_GB >= 16:
-    # Mid-range systems- very conservative due to memory fragmentation
-    MAX_PIXELS = 400_000  # ~0.4 MP per render (reduced further)
-    TILE_SIZE = 600
-else:
-    # Low-memory systems
-    MAX_PIXELS = 400_000  # ~0.4 MP per render
-    TILE_SIZE = 600
+@dataclass
+class ProcessingConfig:
+    """Configuration for document processing and ingestion."""
 
-MAX_SIDE = 2000  # hard cap on either side
-TILE_OVERLAP = 40  # small overlap so words at tile edges aren't cut
-USE_OCR_CLS = False  # angle classifier off to save memory
+    # Supported file extensions
+    doc_extensions: set[str] = set()
 
-print(
-    f"🖥️  Detected {TOTAL_RAM_GB:.1f}GB RAM - using MAX_PIXELS={MAX_PIXELS:,}, TILE_SIZE={TILE_SIZE}"
-)
+    # Text processing
+    chunk_size: int = 1600  # characters
+    chunk_overlap: int = 200  # characters
+    embed_model: str = "all-MiniLM-L6-v2"
 
-# Configurable skip criteria
-MAX_FILE_MB = (
-    200  # skip PDFs/images bigger than this (increased for Proximal Origins emails)
-)
-MAX_PDF_PAGES = 200  # skip PDFs with more pages (increased for important documents)
-SKIP_FORM_PDFS = True  # skip PDFs containing form fields
+    # File paths
+    index_path: Path = Path("local_faiss.index")
+    meta_path: Path = Path("documents.pkl")
+    processed_log: Path = Path("processed_files.txt")
+    # Processing behavior
+    top_print_every: int = 5  # print every N files
+
+    # Memory-based settings (set dynamically)
+    max_pixels: Optional[int] = None
+    tile_size: Optional[int] = None
+    max_side: int = 2000  # hard cap on either side
+    tile_overlap: int = 40  # small overlap so words at tile edges aren't cut
+    use_ocr_cls: bool = False  # angle classifier off to save memory
+
+    # Skip criteria
+    max_file_mb: int = 200  # skip PDFs/images bigger than this
+    max_pdf_pages: int = 200  # skip PDFs with more pages
+    skip_form_pdfs: bool = True  # skip PDFs containing form fields
+    skip_files: set[str] = set()  # Hard-coded list of files to skip
+
+    def __post_init__(self):
+        if not self.doc_extensions:
+            self.doc_extensions = {
+                ".pdf",
+                ".html",
+                ".htm",
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".tif",
+                ".tiff",
+                ".bmp",
+                ".webp",
+            }
+
+        if not self.skip_files:
+            self.skip_files = {
+                "UNC - International Biosafety Committee Meeting Minutes 2019 - Redacted.pdf"
+            }
+
+        # Set memory-based parameters
+        total_ram_gb = psutil.virtual_memory().total / (1024**3)
+        if total_ram_gb >= 32:
+            # High-end systems
+            self.max_pixels = 1_800_000  # ~1.8 MP per render
+            self.tile_size = 1200
+        elif total_ram_gb >= 16:
+            # Mid-range systems- very conservative due to memory fragmentation
+            self.max_pixels = 400_000  # ~0.4 MP per render (reduced further)
+            self.tile_size = 600
+        else:
+            # Low-memory systems
+            self.max_pixels = 400_000  # ~0.4 MP per render
+            self.tile_size = 600
+
+        print(
+            f"🖥️  Detected {total_ram_gb:.1f}GB RAM - using MAX_PIXELS={self.max_pixels:,}, TILE_SIZE={self.tile_size}"
+        )
+
+
+# Global config instance
+CONFIG = ProcessingConfig()
 
 
 def init_ocr():
@@ -142,13 +168,13 @@ def init_ocr():
     try:
         dev = getattr(getattr(paddle, "device", None), "get_device", lambda: "cpu")()
         print(f"ℹ️ PaddlePaddle: {paddle.__version__} | Device: {dev}")
-    except Exception:
+    except (AttributeError, TypeError):
         print("⚠️ Could not print Paddle version/device.")
     return ocr
 
 
 def init_embedder():
-    return SentenceTransformer(EMBED_MODEL)
+    return SentenceTransformer(CONFIG.embed_model)
 
 
 def clean_text(s: str) -> str:
@@ -156,7 +182,7 @@ def clean_text(s: str) -> str:
     return " ".join(s.split())
 
 
-def chunk_text(text: str, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+def chunk_text(text: str, size=CONFIG.chunk_size, overlap=CONFIG.chunk_overlap):
     text = text.strip()
     if not text:
         return []
@@ -174,8 +200,8 @@ def html_to_text(path: str) -> str:
     # Prefer lxml if available; fall back gracefully
     parser = "lxml"
     try:
-        import lxml  # noqa: F401
-    except Exception:
+        import lxml
+    except ImportError:
         parser = "html.parser"
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         soup = BeautifulSoup(f, parser)
@@ -184,7 +210,9 @@ def html_to_text(path: str) -> str:
     return soup.get_text(separator="\n")
 
 
-def _safe_dpi_for_page(page, max_pixels=MAX_PIXELS, max_side=MAX_SIDE, base_dpi=150):
+def _safe_dpi_for_page(
+    page, max_pixels=CONFIG.max_pixels, max_side=CONFIG.max_side, base_dpi=150
+):
 
     # page.rect is in points; 72 points = 1 inch
     rect = page.rect
@@ -213,13 +241,15 @@ def _safe_dpi_for_page(page, max_pixels=MAX_PIXELS, max_side=MAX_SIDE, base_dpi=
 
 def _ocr_pil_image(ocr, pil_img):
     arr = np.array(pil_img.convert("RGB"))  # Paddle expects RGB ndarray
-    result = ocr.ocr(arr, cls=USE_OCR_CLS)
+    result = ocr.ocr(arr, cls=CONFIG.use_ocr_cls)
     if not result or not result[0]:
         return ""
     return "\n".join([line[1][0] for line in result[0]])
 
 
-def _ocr_page_tiled(ocr, page, dpi, tile_px=TILE_SIZE, overlap=TILE_OVERLAP):
+def _ocr_page_tiled(
+    ocr, page, dpi, tile_px=CONFIG.tile_size, overlap=CONFIG.tile_overlap
+):
     rect = page.rect
     s = dpi / 72.0
     full_w = int(rect.width * s)
@@ -227,6 +257,8 @@ def _ocr_page_tiled(ocr, page, dpi, tile_px=TILE_SIZE, overlap=TILE_OVERLAP):
 
     texts = []
     # number of tiles in each dimension
+    if tile_px is None:
+        tile_px = CONFIG.tile_size or 600  # fallback if CONFIG.tile_size is also None
     nx = max(1, math.ceil(full_w / tile_px))
     ny = max(1, math.ceil(full_h / tile_px))
 
@@ -265,13 +297,14 @@ def _ocr_page_tiled(ocr, page, dpi, tile_px=TILE_SIZE, overlap=TILE_OVERLAP):
                     texts.append(txt)
             except MemoryError:
                 # If a tile still fails (rare), try halving tile size once
-                if tile_px > 800:
+                if tile_px is not None and tile_px > 800:
                     return _ocr_page_tiled(
                         ocr, page, dpi, tile_px=tile_px // 2, overlap=overlap
                     )
                 else:
                     continue
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
+                # OCR/image processing errors
                 continue
 
     return "\n".join(texts)
@@ -286,9 +319,11 @@ def _ocr_embedded_images(doc, page, ocr):
                 img = doc.extract_image(xref)
                 im = Image.open(BytesIO(img["image"]))
                 out.append(_ocr_pil_image(ocr, im))
-            except Exception:
+            except (KeyError, OSError, ValueError):
+                # Image extraction/processing errors
                 continue
-    except Exception:
+    except (AttributeError, RuntimeError):
+        # PDF processing errors
         pass
     return "\n".join([t for t in out if t.strip()])
 
@@ -307,7 +342,7 @@ def pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
 
     # 3) OCR path with safe DPI, grayscale, tiling
     dpi = _safe_dpi_for_page(
-        page, max_pixels=MAX_PIXELS, max_side=MAX_SIDE, base_dpi=150
+        page, max_pixels=CONFIG.max_pixels, max_side=CONFIG.max_side, base_dpi=150
     )
 
     rect = page.rect
@@ -315,7 +350,11 @@ def pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
     w_px = int(rect.width * s)
     h_px = int(rect.height * s)
 
-    if w_px <= TILE_SIZE and h_px <= TILE_SIZE:
+    if (
+        CONFIG.tile_size is not None
+        and w_px <= CONFIG.tile_size
+        and h_px <= CONFIG.tile_size
+    ):
         try:
             pix = page.get_pixmap(
                 matrix=fitz.Matrix(s, s), colorspace=fitz.csGRAY, alpha=False
@@ -325,7 +364,8 @@ def pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
             return _ocr_pil_image(ocr, im)
         except MemoryError:
             return _ocr_page_tiled(ocr, page, dpi)
-        except Exception:
+        except (OSError, RuntimeError, ValueError):
+            # Image processing/OCR errors
             return ""
 
     # Larger pages → tiled OCR
@@ -334,11 +374,12 @@ def pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
 
 def extract_from_pdf(path: str, ocr) -> str:
     out = []
-    with fitz.open(path) as doc:
+    with fitz.open(path) as doc:  # type: ignore[attr-defined]
         for p in doc:
             try:
                 out.append(pdf_page_text_or_ocr(p, ocr, doc=doc))
-            except Exception:
+            except (RuntimeError, MemoryError, OSError) as e:
+                print(f"⚠️ Error processing PDF page: {type(e).__name__}: {e}")
                 traceback.print_exc()
                 continue
     return "\n".join(out)
@@ -363,7 +404,7 @@ def extract_from_image(path: str, ocr) -> str:
             return ""
         return "\n".join([line[1][0] for line in result[0]])
 
-    except (MemoryError, np.core._exceptions._ArrayMemoryError) as e:
+    except (MemoryError, np.exceptions._ArrayMemoryError) as e:  # type: ignore[attr-defined]
         print(f"⚠️  Memory error for {path}, trying smaller size: {e}")
         try:
             # Try again with much smaller image
@@ -375,10 +416,18 @@ def extract_from_image(path: str, ocr) -> str:
             if not result or not result[0]:
                 return ""
             return "\n".join([line[1][0] for line in result[0]])
-        except Exception:
-            print(f"⚠️  Failed to process {path} even at reduced size")
+        except (MemoryError, np.exceptions._ArrayMemoryError):  # type: ignore[attr-defined]
+            print(f"⚠️  Still out of memory for {path} even at reduced size")
             return ""
-    except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
+            print(
+                f"⚠️  Failed to process {path} even at reduced size: {type(e).__name__}: {e}"
+            )
+            return ""
+    except (OSError, ValueError) as e:
+        print(f"⚠️  Image processing failed for {path}: {type(e).__name__}: {e}")
+        return ""
+    except RuntimeError as e:
         print(f"⚠️  OCR failed for {path}: {e}")
         return ""
 
@@ -400,8 +449,13 @@ def l2_normalize(mat: np.ndarray) -> np.ndarray:
 
 def should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
 
+    # Check if filename is in skip list
+    filename = os.path.basename(path)
+    if filename in CONFIG.skip_files:
+        return True, f"file in hard-coded skip list."
+
     # Unsupported extension
-    if ext not in DOC_EXTS:
+    if ext not in CONFIG.doc_extensions:
         return True, f"unsupported file type: {ext}"
 
     if path in processed:
@@ -409,23 +463,23 @@ def should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
 
     # File size
     file_size_mb = os.path.getsize(path) / 1024 / 1024
-    if file_size_mb > MAX_FILE_MB:
+    if file_size_mb > CONFIG.max_file_mb:
         return True, f"large file ({file_size_mb:.1f} MB)"
 
     # PDF-specific checks
     if ext == ".pdf":
         try:
-            with fitz.open(path) as doc:
-                if doc.page_count > MAX_PDF_PAGES:
+            with fitz.open(path) as doc:  # type: ignore[attr-defined]
+                if doc.page_count > CONFIG.max_pdf_pages:
                     return True, f"PDF with {doc.page_count} pages"
-                if SKIP_FORM_PDFS:
+                if CONFIG.skip_form_pdfs:
                     try:
                         if doc.widgets():
                             return True, "form-heavy PDF (has interactive fields)"
                     except AttributeError:
                         # Older PyMuPDF versions don't have widgets() method
                         pass
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             return True, f"cannot open PDF: {e}"
 
     return False, ""  # do not skip
@@ -435,31 +489,47 @@ def should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
 # Main build
 # -----------------------
 def build_index(root_folder: str):
+    root_path = Path(root_folder)
 
-    if not os.path.isdir(root_folder):
-        print(f"❌ Folder not found: {root_folder}")
+    if not root_path.is_dir():
+        print(f"❌ Folder not found: {root_path}")
         sys.exit(1)
 
-    print(f"📁 FAISS exists: {os.path.exists(INDEX_PATH)}")
-    print(f"📝 Processed log exists: {os.path.exists(PROCESSED_LOG)}")
+    print(
+        f"📁 FAISS exists: {CONFIG.index_path.exists() if CONFIG.index_path else False}"
+    )
+    print(
+        f"📝 Processed log exists: {CONFIG.processed_log.exists() if CONFIG.processed_log else False}"
+    )
 
     # Clear existing index if resuming
-    if os.path.exists(PROCESSED_LOG) and os.path.exists(INDEX_PATH):
+    if (
+        CONFIG.processed_log
+        and CONFIG.processed_log.exists()
+        and CONFIG.index_path
+        and CONFIG.index_path.exists()
+    ):
         print("ℹ️ Resuming - keeping existing index")
-    elif os.path.exists(INDEX_PATH):
-        os.remove(INDEX_PATH)
-        os.remove(META_PATH)
+    elif CONFIG.index_path and CONFIG.index_path.exists():
+        CONFIG.index_path.unlink()
+        if CONFIG.meta_path:
+            CONFIG.meta_path.unlink()
         print("ℹ🧹 Cleared existing index for fresh run")
 
-    print(f"🔎 Scanning: {root_folder}")
+    print(f"🔎 Scanning: {root_path}")
     ocr = init_ocr()
     embedder = init_embedder()
 
     # Load existing index and metadata if resuming
-    if os.path.exists(INDEX_PATH) and os.path.exists(META_PATH):
+    if (
+        CONFIG.index_path
+        and CONFIG.index_path.exists()
+        and CONFIG.meta_path
+        and CONFIG.meta_path.exists()
+    ):
         print("📂 Loading existing index and metadata...")
-        index = faiss.read_index(INDEX_PATH)
-        with open(META_PATH, "rb") as f:
+        index = faiss.read_index(str(CONFIG.index_path))
+        with open(CONFIG.meta_path, "rb") as f:
             metadata = pickle.load(f)
         print(
             f"   Loaded {index.ntotal} existing chunks from {len(set(m['source'] for m in metadata))} files"
@@ -476,22 +546,26 @@ def build_index(root_folder: str):
 
     # Read processed files log to avoid reprocessing
     processed = set()
-    if os.path.exists(PROCESSED_LOG):
+    if CONFIG.processed_log and CONFIG.processed_log.exists():
         # Try UTF-8 first, fall back to system default if corrupted
         try:
-            with open(PROCESSED_LOG, "r", encoding="utf-8") as f:
-                processed = set(line.strip() for line in f)
+            if CONFIG.processed_log:
+                with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
+                    processed = set(line.strip() for line in f)
         except UnicodeDecodeError:
             print("⚠️  Converting processed_files.txt to UTF-8...")
             # Read with system default encoding and rewrite as UTF-8
-            with open(PROCESSED_LOG, "r", encoding="cp1252", errors="ignore") as f:
-                lines = [line.strip() for line in f]
-            with open(PROCESSED_LOG, "w", encoding="utf-8") as f:
-                for line in lines:
-                    f.write(f"{line}\n")
+            if CONFIG.processed_log:
+                with open(
+                    CONFIG.processed_log, "r", encoding="cp1252", errors="ignore"
+                ) as f:
+                    lines = [line.strip() for line in f]
+                with open(CONFIG.processed_log, "w", encoding="utf-8") as f:
+                    for line in lines:
+                        f.write(f"{line}\n")
             processed = set(lines)
 
-    for dirpath, _, filenames in os.walk(root_folder):
+    for dirpath, _, filenames in os.walk(root_path):
         for fname in filenames:
 
             path = os.path.join(dirpath, fname)
@@ -502,7 +576,7 @@ def build_index(root_folder: str):
                 if reason == "already processed":
                     skipped_already_processed += 1
                     if (
-                        file_count % TOP_PRINT_EVERY == 0
+                        file_count % CONFIG.top_print_every == 0
                     ):  # Only log occasionally to reduce noise
                         print(f"✓ Already processed: {fname}")
                 else:
@@ -530,11 +604,11 @@ def build_index(root_folder: str):
                     torch.cuda.empty_cache()
 
                 # Log processed file
-                with open(PROCESSED_LOG, "a", encoding="utf-8") as f:
-                    f.write(f"{path}\n")
+                if CONFIG.processed_log:
+                    with open(CONFIG.processed_log, "a", encoding="utf-8") as f:
+                        f.write(f"{path}\n")
 
-                if file_count % TOP_PRINT_EVERY == 0:
-                    total_skipped = skipped_already_processed + skipped_problems
+                if file_count % CONFIG.top_print_every == 0:
                     print(
                         f"⚙️ Processed {file_count} files | total chunks: {chunk_total} | already done: {skipped_already_processed} | problems: {skipped_problems}"
                     )
@@ -579,8 +653,8 @@ def build_index(root_folder: str):
         for reason, count in sorted(skip_reasons.items()):
             print(f"   • {reason}: {count}")
 
-    print(f"📝  Index: {INDEX_PATH}")
-    print(f"📝 Metadata: {META_PATH}")
+    print(f"📝  Index: {CONFIG.index_path}")
+    print(f"📝 Metadata: {CONFIG.meta_path}")
     print("   (Re-run this script after adding new documents.)")
 
 
@@ -614,15 +688,17 @@ def process_file(path, ocr, embedder, index, metadata):
         print(f"🔧 Created new FAISS index with dimension {dim}")
 
     # Add to index
-    index.add(embs)
+    embs: NDArray[np.float32] = embedder.encode(
+        chunks, convert_to_numpy=True, normalize_embeddings=False
+    )
 
     # Add metadata
     for i, ch in enumerate(chunks):
         metadata.append({"source": path, "chunk_index": i, "text": ch})
 
     # Incremental save
-    faiss.write_index(index, INDEX_PATH)
-    with open(META_PATH, "wb") as f:
+    faiss.write_index(index, str(CONFIG.index_path))
+    with open(CONFIG.meta_path, "wb") as f:
         pickle.dump(metadata, f)
 
     return index, len(chunks)
