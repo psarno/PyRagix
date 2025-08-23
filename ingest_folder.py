@@ -14,16 +14,19 @@
 # ===============================
 # Standard Library
 # ===============================
+import argparse
 import logging
 import os
 import sys
 import pickle
 import traceback
 import math
+import gc
 from io import BytesIO
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from contextlib import contextmanager
 
 # ===============================
 # Runtime environment settings
@@ -113,6 +116,9 @@ class ProcessingConfig:
     skip_form_pdfs: bool = True  # skip PDFs containing form fields
     skip_files: set[str] = set()  # Hard-coded list of files to skip
 
+    # Default folder to process (can be overridden by command line)
+    default_folder: str = "C:\\Users\\psarn\\OneDrive\\Documents\\Covid-19"
+
     def __post_init__(self):
         if not self.doc_extensions:
             self.doc_extensions = {
@@ -129,9 +135,7 @@ class ProcessingConfig:
             }
 
         if not self.skip_files:
-            self.skip_files = {
-                "UNC - International Biosafety Committee Meeting Minutes 2019 - Redacted.pdf"
-            }
+            self.skip_files = config.SKIP_FILES
 
         # Set memory-based parameters
         total_ram_gb = psutil.virtual_memory().total / (1024**3)
@@ -157,7 +161,20 @@ class ProcessingConfig:
 CONFIG = ProcessingConfig()
 
 
-def init_ocr():
+@contextmanager
+def _memory_cleanup():
+    """Context manager for automatic memory cleanup after processing."""
+    try:
+        yield
+    finally:
+        # Force garbage collection after operations to prevent memory fragmentation
+        gc.collect()
+        # Keep VRAM stable
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
+def _init_ocr() -> PaddleOCR:
 
     # Suppress PaddleOCR warnings
     logging.getLogger("paddleocr").setLevel(logging.ERROR)
@@ -173,16 +190,18 @@ def init_ocr():
     return ocr
 
 
-def init_embedder():
+def _init_embedder() -> SentenceTransformer:
     return SentenceTransformer(CONFIG.embed_model)
 
 
-def clean_text(s: str) -> str:
+def _clean_text(s: str) -> str:
     # Collapse whitespace; keep newlines sparsely
     return " ".join(s.split())
 
 
-def chunk_text(text: str, size=CONFIG.chunk_size, overlap=CONFIG.chunk_overlap):
+def _chunk_text(
+    text: str, size=CONFIG.chunk_size, overlap=CONFIG.chunk_overlap
+) -> list[str]:
     text = text.strip()
     if not text:
         return []
@@ -196,7 +215,7 @@ def chunk_text(text: str, size=CONFIG.chunk_size, overlap=CONFIG.chunk_overlap):
     return chunks
 
 
-def html_to_text(path: str) -> str:
+def _html_to_text(path: str) -> str:
     # Prefer lxml if available; fall back gracefully
     parser = "lxml"
     try:
@@ -213,7 +232,17 @@ def html_to_text(path: str) -> str:
 def _safe_dpi_for_page(
     page, max_pixels=CONFIG.max_pixels, max_side=CONFIG.max_side, base_dpi=150
 ):
+    """Calculate safe DPI for page rendering to avoid memory issues.
 
+    Args:
+        page: PyMuPDF page object
+        max_pixels: Maximum total pixels allowed (width * height)
+        max_side: Maximum pixels for either width or height
+        base_dpi: Starting DPI to scale down from
+
+    Returns:
+        int: Safe DPI value (minimum 72)
+    """
     # page.rect is in points; 72 points = 1 inch
     rect = page.rect
     if rect.width == 0 or rect.height == 0:
@@ -239,7 +268,7 @@ def _safe_dpi_for_page(
     return dpi
 
 
-def _ocr_pil_image(ocr, pil_img):
+def _ocr_pil_image(ocr, pil_img) -> str:
     arr = np.array(pil_img.convert("RGB"))  # Paddle expects RGB ndarray
     result = ocr.ocr(arr, cls=CONFIG.use_ocr_cls)
     if not result or not result[0]:
@@ -249,7 +278,19 @@ def _ocr_pil_image(ocr, pil_img):
 
 def _ocr_page_tiled(
     ocr, page, dpi, tile_px=CONFIG.tile_size, overlap=CONFIG.tile_overlap
-):
+) -> str:
+    """OCR a page by splitting it into tiles to manage memory usage.
+
+    Args:
+        ocr: PaddleOCR instance
+        page: PyMuPDF page object
+        dpi: DPI for rendering
+        tile_px: Size of each tile in pixels
+        overlap: Overlap between tiles in pixels
+
+    Returns:
+        str: Concatenated OCR text from all tiles
+    """
     rect = page.rect
     s = dpi / 72.0
     full_w = int(rect.width * s)
@@ -310,7 +351,7 @@ def _ocr_page_tiled(
     return "\n".join(texts)
 
 
-def _ocr_embedded_images(doc, page, ocr):
+def _ocr_embedded_images(doc, page, ocr) -> str:
     out = []
     try:
         imgs = page.get_images(full=True) or []
@@ -328,7 +369,17 @@ def _ocr_embedded_images(doc, page, ocr):
     return "\n".join([t for t in out if t.strip()])
 
 
-def pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
+def _pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
+    """Extract text from PDF page using native text first, then OCR fallback.
+
+    Args:
+        page: PyMuPDF page object
+        ocr: PaddleOCR instance
+        doc: PyMuPDF document object (optional, for embedded image extraction)
+
+    Returns:
+        str: Extracted text from the page
+    """
     # 1) Native text first
     text = page.get_text("text") or ""
     if len(text.strip()) > 20:
@@ -372,12 +423,12 @@ def pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
     return _ocr_page_tiled(ocr, page, dpi)
 
 
-def extract_from_pdf(path: str, ocr) -> str:
+def _extract_from_pdf(path: str, ocr) -> str:
     out = []
     with fitz.open(path) as doc:  # type: ignore[attr-defined]
         for p in doc:
             try:
-                out.append(pdf_page_text_or_ocr(p, ocr, doc=doc))
+                out.append(_pdf_page_text_or_ocr(p, ocr, doc=doc))
             except (RuntimeError, MemoryError, OSError) as e:
                 print(f"⚠️ Error processing PDF page: {type(e).__name__}: {e}")
                 traceback.print_exc()
@@ -385,7 +436,7 @@ def extract_from_pdf(path: str, ocr) -> str:
     return "\n".join(out)
 
 
-def extract_from_image(path: str, ocr) -> str:
+def _extract_from_image(path: str, ocr) -> str:
     # Open -> RGB -> ndarray -> OCR with memory error handling
     try:
         with Image.open(path) as im:
@@ -432,23 +483,32 @@ def extract_from_image(path: str, ocr) -> str:
         return ""
 
 
-def extract_text(path: str, ocr) -> str:
+def _extract_text(path: str, ocr) -> str:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
-        return extract_from_pdf(path, ocr)
+        return _extract_from_pdf(path, ocr)
     elif ext in {".html", ".htm"}:
-        return html_to_text(path)
+        return _html_to_text(path)
     else:
-        return extract_from_image(path, ocr)
+        return _extract_from_image(path, ocr)
 
 
-def l2_normalize(mat: np.ndarray) -> np.ndarray:
+def _l2_normalize(mat: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
     return mat / norms
 
 
-def should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
+def _should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
+    """Determine if a file should be skipped during processing.
 
+    Args:
+        path: Full file path
+        ext: File extension (lowercase)
+        processed: Set of already processed file paths
+
+    Returns:
+        tuple[bool, str]: (should_skip, reason)
+    """
     # Check if filename is in skip list
     filename = os.path.basename(path)
     if filename in CONFIG.skip_files:
@@ -485,42 +545,8 @@ def should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
     return False, ""  # do not skip
 
 
-# -----------------------
-# Main build
-# -----------------------
-def build_index(root_folder: str):
-    root_path = Path(root_folder)
-
-    if not root_path.is_dir():
-        print(f"❌ Folder not found: {root_path}")
-        sys.exit(1)
-
-    print(
-        f"📁 FAISS exists: {CONFIG.index_path.exists() if CONFIG.index_path else False}"
-    )
-    print(
-        f"📝 Processed log exists: {CONFIG.processed_log.exists() if CONFIG.processed_log else False}"
-    )
-
-    # Clear existing index if resuming
-    if (
-        CONFIG.processed_log
-        and CONFIG.processed_log.exists()
-        and CONFIG.index_path
-        and CONFIG.index_path.exists()
-    ):
-        print("ℹ️ Resuming - keeping existing index")
-    elif CONFIG.index_path and CONFIG.index_path.exists():
-        CONFIG.index_path.unlink()
-        if CONFIG.meta_path:
-            CONFIG.meta_path.unlink()
-        print("ℹ🧹 Cleared existing index for fresh run")
-
-    print(f"🔎 Scanning: {root_path}")
-    ocr = init_ocr()
-    embedder = init_embedder()
-
-    # Load existing index and metadata if resuming
+def _load_existing_index() -> tuple[Optional[faiss.Index], list[dict]]:
+    """Load existing FAISS index and metadata if they exist."""
     if (
         CONFIG.index_path
         and CONFIG.index_path.exists()
@@ -534,17 +560,13 @@ def build_index(root_folder: str):
         print(
             f"   Loaded {index.ntotal} existing chunks from {len(set(m['source'] for m in metadata))} files"
         )
+        return index, metadata
     else:
-        index = None
-        metadata = []
+        return None, []
 
-    file_count = 0
-    chunk_total = len(metadata) if metadata else 0
-    skipped_already_processed = 0
-    skipped_problems = 0
-    skip_reasons = {}
 
-    # Read processed files log to avoid reprocessing
+def _load_processed_files() -> set[str]:
+    """Load the set of already processed files from the log."""
     processed = set()
     if CONFIG.processed_log and CONFIG.processed_log.exists():
         # Try UTF-8 first, fall back to system default if corrupted
@@ -564,14 +586,25 @@ def build_index(root_folder: str):
                     for line in lines:
                         f.write(f"{line}\n")
             processed = set(lines)
+    return processed
+
+
+def _scan_and_process_files(
+    root_path, ocr, embedder, index, metadata, processed
+) -> tuple[Optional[faiss.Index], int, int, int, int, dict[str, int]]:
+    """Scan directory and process all supported files."""
+    file_count = 0
+    chunk_total = len(metadata) if metadata else 0
+    skipped_already_processed = 0
+    skipped_problems = 0
+    skip_reasons = {}
 
     for dirpath, _, filenames in os.walk(root_path):
         for fname in filenames:
-
             path = os.path.join(dirpath, fname)
             ext = os.path.splitext(fname)[1].lower()
 
-            skip, reason = should_skip_file(path, ext, processed)
+            skip, reason = _should_skip_file(path, ext, processed)
             if skip:
                 if reason == "already processed":
                     skipped_already_processed += 1
@@ -587,21 +620,14 @@ def build_index(root_folder: str):
                 continue
 
             try:
-
                 print(f"Processing: {path}")
 
                 file_count += 1
-                index, chunk_count = process_file(path, ocr, embedder, index, metadata)
-                chunk_total += chunk_count
-
-                # Force garbage collection after each file to prevent memory fragmentation
-                import gc
-
-                gc.collect()
-
-                # Keep VRAM stable
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                with _memory_cleanup():
+                    index, chunk_count = _process_file(
+                        path, ocr, embedder, index, metadata
+                    )
+                    chunk_total += chunk_count
 
                 # Log processed file
                 if CONFIG.processed_log:
@@ -635,14 +661,23 @@ def build_index(root_folder: str):
                 skip_reasons[f"{error_type}"] = skip_reasons.get(f"{error_type}", 0) + 1
 
                 # Force cleanup after crash
-                import gc
+                with _memory_cleanup():
+                    pass
 
-                gc.collect()
+    return (
+        index,
+        file_count,
+        chunk_total,
+        skipped_already_processed,
+        skipped_problems,
+        skip_reasons,
+    )
 
-    if index is None or chunk_total == 0:
-        print("❌ No text extracted. Nothing indexed.")
-        sys.exit(2)
 
+def _print_summary(
+    file_count, chunk_total, skipped_already_processed, skipped_problems, skip_reasons
+) -> None:
+    """Print processing summary statistics."""
     print("-------------------------------------------------")
     print(f"✅ Done. Files processed: {file_count} | Chunks: {chunk_total}")
     print(f"📋 Already processed: {skipped_already_processed}")
@@ -658,19 +693,88 @@ def build_index(root_folder: str):
     print("   (Re-run this script after adding new documents.)")
 
 
-def process_file(path, ocr, embedder, index, metadata):
+# -----------------------
+# Main build
+# -----------------------
+def build_index(root_folder: str) -> None:
+    """Main function to build FAISS index from documents in a folder."""
+    root_path = Path(root_folder)
+
+    if not root_path.is_dir():
+        print(f"❌ Folder not found: {root_path}")
+        sys.exit(1)
+
+    print(
+        f"📁 FAISS exists: {CONFIG.index_path.exists() if CONFIG.index_path else False}"
+    )
+    print(
+        f"📝 Processed log exists: {CONFIG.processed_log.exists() if CONFIG.processed_log else False}"
+    )
+
+    # Clear existing index if resuming
+    if (
+        CONFIG.processed_log
+        and CONFIG.processed_log.exists()
+        and CONFIG.index_path
+        and CONFIG.index_path.exists()
+    ):
+        print("ℹ️ Resuming - keeping existing index")
+    elif CONFIG.index_path and CONFIG.index_path.exists():
+        CONFIG.index_path.unlink()
+        if CONFIG.meta_path:
+            CONFIG.meta_path.unlink()
+        print("ℹ🧹 Cleared existing index for fresh run")
+
+    print(f"🔎 Scanning: {root_path}")
+    ocr = _init_ocr()
+    embedder = _init_embedder()
+
+    # Load existing index and metadata
+    index, metadata = _load_existing_index()
+
+    # Load processed files
+    processed = _load_processed_files()
+
+    # Scan and process files
+    (
+        index,
+        file_count,
+        chunk_total,
+        skipped_already_processed,
+        skipped_problems,
+        skip_reasons,
+    ) = _scan_and_process_files(root_path, ocr, embedder, index, metadata, processed)
+
+    if index is None or chunk_total == 0:
+        print("❌ No text extracted. Nothing indexed.")
+        sys.exit(2)
+
+    # Print summary
+    _print_summary(
+        file_count,
+        chunk_total,
+        skipped_already_processed,
+        skipped_problems,
+        skip_reasons,
+    )
+
+
+def _process_file(
+    path, ocr, embedder, index, metadata
+) -> tuple[Optional[faiss.Index], int]:
     """
     Process a single file: extract text, chunk, embed, and add to FAISS + metadata.
     Returns (index, chunk_count) - index may be newly created if it was None.
     """
-    raw_text = extract_text(path, ocr)
-    text = clean_text(raw_text)
-    chunks = chunk_text(text)
+    raw_text = _extract_text(path, ocr)
+    text = _clean_text(raw_text)
+    chunks = _chunk_text(text)
 
     if not chunks:
         return index, 0  # zero chunks processed
 
     # Embeddings
+    embs: Optional[np.ndarray] = None
     with torch.inference_mode(), torch.autocast(
         "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
     ):
@@ -679,18 +783,18 @@ def process_file(path, ocr, embedder, index, metadata):
             batch_size=config.BATCH_SIZE,
             convert_to_numpy=True,
             normalize_embeddings=True,
-        ).astype("float32")
+        ).astype(np.float32)
 
     # Initialize FAISS if needed (only happens on very first file)
-    if index is None:
+    if index is None and embs is not None:
         dim = embs.shape[1]
         index = faiss.IndexFlatIP(dim)
         print(f"🔧 Created new FAISS index with dimension {dim}")
 
-    # Add to index
-    embs: NDArray[np.float32] = embedder.encode(
-        chunks, convert_to_numpy=True, normalize_embeddings=False
-    )
+    # Add to index (using the previously computed embeddings)
+    if index is not None and embs is not None:
+        # Type ignore for FAISS binding issues
+        index.add(embs)  # type: ignore
 
     # Add metadata
     for i, ch in enumerate(chunks):
@@ -708,11 +812,14 @@ def process_file(path, ocr, embedder, index, metadata):
 # CLI
 # -----------------------
 if __name__ == "__main__":
-    # ap = argparse.ArgumentParser(
-    #     description="Ingest folder -> FAISS (PDF/HTML/Images with OCR fallback)"
-    # )
-    # ap.add_argument("folder", help="Root folder of documents")
-    # args = ap.parse_args()
-    # build_index(args.folder)
-
-    build_index("C:\\Users\\psarn\\OneDrive\\Documents\\Covid-19")
+    ap = argparse.ArgumentParser(
+        description="Ingest folder -> FAISS (PDF/HTML/Images with OCR fallback)"
+    )
+    ap.add_argument(
+        "folder",
+        nargs="?",
+        default=CONFIG.default_folder,
+        help=f"Root folder of documents (default: {CONFIG.default_folder})",
+    )
+    args = ap.parse_args()
+    build_index(args.folder)

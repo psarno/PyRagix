@@ -28,3 +28,8 @@ NPROBE = 16
 # INDEX_TYPE = "ivf_flat"
 # NLIST = 1024
 # NPROBE = 16
+
+# Files to skip during processing (by filename)
+SKIP_FILES = {
+    "UNC - International Biosafety Committee Meeting Minutes 2019 - Redacted.pdf"
+}
