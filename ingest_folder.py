@@ -23,7 +23,7 @@ import traceback
 import math
 import gc
 from io import BytesIO
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 from contextlib import contextmanager
@@ -89,7 +89,7 @@ class ProcessingConfig:
     """Configuration for document processing and ingestion."""
 
     # Supported file extensions
-    doc_extensions: set[str] = set()
+    doc_extensions: set[str] = field(default_factory=set)
 
     # Text processing
     chunk_size: int = 1600  # characters
@@ -97,9 +97,9 @@ class ProcessingConfig:
     embed_model: str = "all-MiniLM-L6-v2"
 
     # File paths
-    index_path: Path = Path("local_faiss.index")
-    meta_path: Path = Path("documents.pkl")
-    processed_log: Path = Path("processed_files.txt")
+    index_path: Path = field(default_factory=lambda: Path("local_faiss.index"))
+    meta_path: Path = field(default_factory=lambda: Path("documents.pkl"))
+    processed_log: Path = field(default_factory=lambda: Path("processed_files.txt"))
     # Processing behavior
     top_print_every: int = 5  # print every N files
 
@@ -114,7 +114,9 @@ class ProcessingConfig:
     max_file_mb: int = 200  # skip PDFs/images bigger than this
     max_pdf_pages: int = 200  # skip PDFs with more pages
     skip_form_pdfs: bool = True  # skip PDFs containing form fields
-    skip_files: set[str] = set()  # Hard-coded list of files to skip
+    skip_files: set[str] = field(
+        default_factory=set
+    )  # Hard-coded list of files to skip
 
     # Default folder to process (can be overridden by command line)
     default_folder: str = "C:\\Users\\psarn\\OneDrive\\Documents\\Covid-19"
@@ -145,8 +147,10 @@ class ProcessingConfig:
             self.tile_size = 1200
         elif total_ram_gb >= 16:
             # Mid-range systems- very conservative due to memory fragmentation
-            self.max_pixels = 400_000  # ~0.4 MP per render (reduced further)
-            self.tile_size = 600
+            self.max_pixels = (
+                200_000  # ~0.2 MP per render (reduced further for stability)
+            )
+            self.tile_size = 400
         else:
             # Low-memory systems
             self.max_pixels = 400_000  # ~0.4 MP per render
@@ -269,11 +273,15 @@ def _safe_dpi_for_page(
 
 
 def _ocr_pil_image(ocr, pil_img) -> str:
-    arr = np.array(pil_img.convert("RGB"))  # Paddle expects RGB ndarray
-    result = ocr.ocr(arr, cls=CONFIG.use_ocr_cls)
-    if not result or not result[0]:
+    try:
+        arr = np.array(pil_img.convert("RGB"))  # Paddle expects RGB ndarray
+        result = ocr.ocr(arr, cls=CONFIG.use_ocr_cls)
+        if not result or not result[0]:
+            return ""
+        return "\n".join([line[1][0] for line in result[0]])
+    except (RuntimeError, KeyboardInterrupt, OSError) as e:
+        print(f"⚠️  OCR failed on PIL image: {e}")
         return ""
-    return "\n".join([line[1][0] for line in result[0]])
 
 
 def _ocr_page_tiled(
@@ -358,9 +366,10 @@ def _ocr_embedded_images(doc, page, ocr) -> str:
         for xref, *_ in imgs:
             try:
                 img = doc.extract_image(xref)
-                im = Image.open(BytesIO(img["image"]))
-                out.append(_ocr_pil_image(ocr, im))
-            except (KeyError, OSError, ValueError):
+                if img is not None and "image" in img:
+                    im = Image.open(BytesIO(img["image"]))
+                    out.append(_ocr_pil_image(ocr, im))
+            except (KeyError, OSError, ValueError, TypeError):
                 # Image extraction/processing errors
                 continue
     except (AttributeError, RuntimeError):
@@ -440,34 +449,42 @@ def _extract_from_image(path: str, ocr) -> str:
     # Open -> RGB -> ndarray -> OCR with memory error handling
     try:
         with Image.open(path) as im:
-            # Much more aggressive sizing for 16GB RAM systems
-            max_pixels = 512 * 512  # 0.25MP max
+            # Ultra conservative sizing for stability
+            max_pixels = 256 * 256  # 0.065MP max - very small
             if im.width * im.height > max_pixels:
                 scale = (max_pixels / (im.width * im.height)) ** 0.5
-                new_w = max(128, int(im.width * scale))  # Don't go too small
-                new_h = max(128, int(im.height * scale))
+                new_w = max(64, int(im.width * scale))  # Don't go too small
+                new_h = max(64, int(im.height * scale))
                 im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
             im = im.convert("RGB")
             arr = np.array(im)
 
-        result = ocr.ocr(arr, cls=False)  # cls=False to save memory
-        if not result or not result[0]:
+        try:
+            result = ocr.ocr(arr, cls=False)  # cls=False to save memory
+            if not result or not result[0]:
+                return ""
+            return "\n".join([line[1][0] for line in result[0]])
+        except (RuntimeError, KeyboardInterrupt) as e:
+            print(f"⚠️  OCR failed for {path}: {e}")
             return ""
-        return "\n".join([line[1][0] for line in result[0]])
 
-    except (MemoryError, np.exceptions._ArrayMemoryError) as e:  # type: ignore[attr-defined]
+    except (MemoryError, RuntimeError) as e:
         print(f"⚠️  Memory error for {path}, trying smaller size: {e}")
         try:
             # Try again with much smaller image
             with Image.open(path) as im:
-                im.thumbnail((512, 512), Image.Resampling.LANCZOS)
+                im.thumbnail((128, 128), Image.Resampling.LANCZOS)
                 im = im.convert("RGB")
                 arr = np.array(im)
-            result = ocr.ocr(arr, cls=False)
-            if not result or not result[0]:
+            try:
+                result = ocr.ocr(arr, cls=False)
+                if not result or not result[0]:
+                    return ""
+                return "\n".join([line[1][0] for line in result[0]])
+            except (RuntimeError, KeyboardInterrupt) as e:
+                print(f"⚠️  OCR retry failed for {path}: {e}")
                 return ""
-            return "\n".join([line[1][0] for line in result[0]])
-        except (MemoryError, np.exceptions._ArrayMemoryError):  # type: ignore[attr-defined]
+        except (MemoryError, RuntimeError):
             print(f"⚠️  Still out of memory for {path} even at reduced size")
             return ""
         except (OSError, ValueError, RuntimeError) as e:
@@ -477,9 +494,6 @@ def _extract_from_image(path: str, ocr) -> str:
             return ""
     except (OSError, ValueError) as e:
         print(f"⚠️  Image processing failed for {path}: {type(e).__name__}: {e}")
-        return ""
-    except RuntimeError as e:
-        print(f"⚠️  OCR failed for {path}: {e}")
         return ""
 
 
@@ -704,6 +718,12 @@ def build_index(root_folder: str) -> None:
         print(f"❌ Folder not found: {root_path}")
         sys.exit(1)
 
+    # Clear crash log from previous runs
+    crash_log_path = Path("crash_log.txt")
+    if crash_log_path.exists():
+        crash_log_path.unlink()
+        print("🗑️  Cleared previous crash log")
+
     print(
         f"📁 FAISS exists: {CONFIG.index_path.exists() if CONFIG.index_path else False}"
     )
@@ -736,20 +756,34 @@ def build_index(root_folder: str) -> None:
     processed = _load_processed_files()
 
     # Scan and process files
-    (
-        index,
-        file_count,
-        chunk_total,
-        skipped_already_processed,
-        skipped_problems,
-        skip_reasons,
-    ) = _scan_and_process_files(root_path, ocr, embedder, index, metadata, processed)
+    print("🔄 Starting file scan and processing...")
+    try:
+        (
+            index,
+            file_count,
+            chunk_total,
+            skipped_already_processed,
+            skipped_problems,
+            skip_reasons,
+        ) = _scan_and_process_files(
+            root_path, ocr, embedder, index, metadata, processed
+        )
+        print(
+            f"✅ File processing completed. Got {file_count} files, {chunk_total} chunks"
+        )
+    except Exception as e:
+        print(f"❌ Fatal error during file processing: {type(e).__name__}: {e}")
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
 
     if index is None or chunk_total == 0:
         print("❌ No text extracted. Nothing indexed.")
         sys.exit(2)
 
     # Print summary
+    print("📊 Generating summary...")
     _print_summary(
         file_count,
         chunk_total,
@@ -757,6 +791,7 @@ def build_index(root_folder: str) -> None:
         skipped_problems,
         skip_reasons,
     )
+    print("🎉 Script completed successfully!")
 
 
 def _process_file(
