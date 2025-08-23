@@ -1,3 +1,16 @@
+# ======================================
+# Ingestion script (laptop-optimized)
+# - Designed for 16 GB RAM / 6 GB VRAM
+# - Torch threads capped at 2
+# - CUDA alloc split tuned for GTX 1660 Ti
+# - PaddleOCR runs with device fallback
+#
+# If porting to a bigger host:
+#   - Increase thread caps
+#   - Increase batch_size
+#   - Consider FAISS GPU or HNSW index
+# ======================================
+
 # ===============================
 # Standard Library
 # ===============================
@@ -10,6 +23,25 @@ import math
 from io import BytesIO
 
 # ===============================
+# Runtime environment settings
+# ===============================
+# ===============================
+# Runtime environment settings
+# ===============================
+import config
+
+# Cap library threading
+os.environ["OPENBLAS_NUM_THREADS"] = str(config.OPENBLAS_NUM_THREADS)
+os.environ["MKL_NUM_THREADS"] = str(config.MKL_NUM_THREADS)
+os.environ["OMP_NUM_THREADS"] = str(config.OMP_NUM_THREADS)
+os.environ["NUMEXPR_MAX_THREADS"] = str(config.NUMEXPR_MAX_THREADS)
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# CUDA settings
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = config.PYTORCH_CUDA_ALLOC_CONF
+os.environ["CUDA_VISIBLE_DEVICES"] = config.CUDA_VISIBLE_DEVICES
+
+# ===============================
 # Core Numerical / Utility
 # ===============================
 import numpy as np
@@ -20,7 +52,11 @@ import psutil
 # ===============================
 import torch
 
-print("Torch loaded:", torch.__version__)
+import torch
+
+torch.set_num_threads(config.TORCH_NUM_THREADS)
+print("Torch loaded:", torch.__version__, "CUDA available:", torch.cuda.is_available())
+
 from sentence_transformers import SentenceTransformer
 
 # ===============================
@@ -28,11 +64,15 @@ from sentence_transformers import SentenceTransformer
 # ===============================
 import faiss
 
+print("FAISS version:", faiss.__version__)
+
 # ===============================
 # Other AI Frameworks
 # ===============================
 import paddle
 from paddleocr import PaddleOCR
+
+print("Paddle compiled with CUDA:", paddle.device.is_compiled_with_cuda())
 
 # ===============================
 # Imaging / Document Parsers
@@ -485,6 +525,10 @@ def build_index(root_folder: str):
 
                 gc.collect()
 
+                # Keep VRAM stable
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
                 # Log processed file
                 with open(PROCESSED_LOG, "a", encoding="utf-8") as f:
                     f.write(f"{path}\n")
@@ -548,13 +592,20 @@ def process_file(path, ocr, embedder, index, metadata):
     raw_text = extract_text(path, ocr)
     text = clean_text(raw_text)
     chunks = chunk_text(text)
+
     if not chunks:
         return index, 0  # zero chunks processed
 
     # Embeddings
-    embs = embedder.encode(chunks, convert_to_numpy=True, normalize_embeddings=False)
-    embs = embs.astype("float32")
-    embs = l2_normalize(embs)
+    with torch.inference_mode(), torch.autocast(
+        "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
+    ):
+        embs = embedder.encode(
+            chunks,
+            batch_size=config.BATCH_SIZE,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        ).astype("float32")
 
     # Initialize FAISS if needed (only happens on very first file)
     if index is None:
