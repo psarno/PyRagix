@@ -42,8 +42,6 @@ class ProcessingConfig:
         default_factory=set
     )  # Hard-coded list of files to skip
 
-    # Default folder to process (can be overridden by command line)
-    default_folder: str = "C:\\Users\\psarn\\OneDrive\\Documents\\Covid-19"
 
     def __post_init__(self):
         if not self.doc_extensions:

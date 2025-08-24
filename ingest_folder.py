@@ -889,9 +889,13 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "folder",
-        nargs="?",
-        default=CONFIG.default_folder,
-        help=f"Root folder of documents (default: {CONFIG.default_folder})",
+        help="Root folder of documents to process",
     )
     args = ap.parse_args()
+    
+    if not args.folder:
+        print("📁 Error: Please specify a folder path to process!")
+        print("Usage: python ingest_folder.py <folder_path>")
+        sys.exit(1)
+    
     build_index(args.folder)
