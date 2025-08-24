@@ -25,4 +25,7 @@ Thumbs.db
 # Large FAISS vector storage files
 documents.pkl
 local_faiss.index
+
+# Misc project files (logging, etc.)
 processed_files.txt
+ingestion.log

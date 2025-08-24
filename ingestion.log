@@ -1,4 +1,0 @@
-2025-08-24 02:09:03,468 - INFO - Torch loaded: 2.8.0+cu126, CUDA available: True
-2025-08-24 02:09:43,704 - INFO - Loading faiss with AVX2 support.
-2025-08-24 02:09:44,113 - INFO - Successfully loaded faiss with AVX2 support.
-2025-08-24 02:09:44,125 - INFO - FAISS version: 1.8.0
