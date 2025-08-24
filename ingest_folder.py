@@ -15,6 +15,7 @@
 # Standard Library
 # ===============================
 import argparse
+import json
 import logging
 import os
 import sys
@@ -39,6 +40,7 @@ from typing import (
 )
 from typing_extensions import TypedDict
 from contextlib import contextmanager
+import config
 
 
 # Protocol definitions for PyMuPDF types
@@ -92,11 +94,6 @@ class ProcessingResult(TypedDict):
     chunk_count: int
 
 
-# ===============================
-# Runtime environment settings
-# ===============================
-import config
-
 # Validate configuration on startup
 config.validate_config()
 
@@ -111,61 +108,97 @@ logging.basicConfig(
     ],
 )
 
-# Cap library threading
-os.environ["OPENBLAS_NUM_THREADS"] = str(config.OPENBLAS_NUM_THREADS)
-os.environ["MKL_NUM_THREADS"] = str(config.MKL_NUM_THREADS)
-os.environ["OMP_NUM_THREADS"] = str(config.OMP_NUM_THREADS)
-os.environ["NUMEXPR_MAX_THREADS"] = str(config.NUMEXPR_MAX_THREADS)
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-# CUDA settings
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = config.PYTORCH_CUDA_ALLOC_CONF
-os.environ["CUDA_VISIBLE_DEVICES"] = config.CUDA_VISIBLE_DEVICES
 
 # ===============================
-# Core Numerical / Utility
+# Import with suppressed output
 # ===============================
+# Core dependencies
 import numpy as np
+from PIL import Image
+from bs4 import BeautifulSoup
 
-# ===============================
-# GPU Frameworks (order critical)
-# ===============================
+# Heavy imports with targeted logging suppression
 import torch
-
-torch.set_num_threads(config.TORCH_NUM_THREADS)
-logger.info(
-    f"Torch loaded: {torch.__version__}, CUDA available: {torch.cuda.is_available()}"
-)
-
 from sentence_transformers import SentenceTransformer
-
-# ===============================
-# Vector Databases / Indexing
-# ===============================
 import faiss
 
-logger.info(f"FAISS version: {faiss.__version__}")
-
-# ===============================
-# Other AI Frameworks
-# ===============================
-import paddle
 from paddleocr import PaddleOCR
-
-logger.info(f"Paddle compiled with CUDA: {paddle.device.is_compiled_with_cuda()}")
-
-# ===============================
-# Imaging / Document Parsers
-# ===============================
-from PIL import Image
 import fitz  # PyMuPDF
-from bs4 import BeautifulSoup
 from classes.ProcessingConfig import ProcessingConfig
 from classes.OCRProcessor import OCRProcessor
 
-# Global instances
-CONFIG = ProcessingConfig()
-OCR_PROCESSOR = OCRProcessor(CONFIG)
+# Global instances - will be initialized after configuration is loaded
+CONFIG: Optional[ProcessingConfig] = None
+OCR_PROCESSOR: Optional[OCRProcessor] = None
+
+
+def _apply_user_configuration(user_config: Optional[Dict[str, Any]] = None) -> None:
+    """Apply user configuration from JSON file to environment variables and torch settings."""
+    if user_config is None:
+        # Try to load from user_config.json
+        config_file = "user_config.json"
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, "r", encoding="utf-8") as f:
+                    user_config = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                logger.warning(f"Could not load {config_file}, using defaults")
+                user_config = {}
+        else:
+            user_config = {}
+
+    # Environment variables that need to be set before library imports
+    env_vars = [
+        "TORCH_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OMP_NUM_THREADS",
+        "NUMEXPR_MAX_THREADS",
+        "CUDA_VISIBLE_DEVICES",
+        "PYTORCH_CUDA_ALLOC_CONF",
+    ]
+
+    for var in env_vars:
+        if user_config and var in user_config:
+            os.environ[var] = str(user_config[var])
+        elif hasattr(config, var):
+            # Fallback to config.py defaults
+            os.environ[var] = str(getattr(config, var))
+
+    # Suppress verbose paddle logging
+    os.environ["GLOG_minloglevel"] = "2"
+
+    # Import paddle after setting environment
+    import paddle
+
+    # Suppress verbose loggers
+    for logger_name in [
+        "faiss",
+        "sentence_transformers",
+        "torch",
+        "paddle",
+        "paddleocr",
+    ]:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+    # Configure torch with user settings
+    torch_threads = (user_config or {}).get(
+        "TORCH_NUM_THREADS", getattr(config, "TORCH_NUM_THREADS", 1)
+    )
+    torch.set_num_threads(torch_threads)
+
+    logger.info(
+        f"Torch loaded: {torch.__version__}, CUDA available: {torch.cuda.is_available()}"
+    )
+    logger.info(f"FAISS version: {faiss.__version__}")
+    logger.info(f"Paddle compiled with CUDA: {paddle.device.is_compiled_with_cuda()}")
+
+
+def _initialize_global_instances() -> None:
+    """Initialize global CONFIG and OCR_PROCESSOR instances."""
+    global CONFIG, OCR_PROCESSOR
+    CONFIG = ProcessingConfig()
+    OCR_PROCESSOR = OCRProcessor(CONFIG)
 
 
 @contextmanager
@@ -189,6 +222,7 @@ def _cleanup_memory() -> None:
 
 
 def _init_embedder() -> SentenceTransformer:
+    assert CONFIG is not None, "CONFIG must be initialized before use"
     return SentenceTransformer(CONFIG.embed_model)
 
 
@@ -198,8 +232,16 @@ def _clean_text(s: str) -> str:
 
 
 def _chunk_text(
-    text: str, size: int = CONFIG.chunk_size, overlap: int = CONFIG.chunk_overlap
+    text: str, size: Optional[int] = None, overlap: Optional[int] = None
 ) -> List[str]:
+    # Resolve config values if not provided
+    if size is None:
+        assert CONFIG is not None, "CONFIG must be initialized before use"
+        size = CONFIG.chunk_size
+    if overlap is None:
+        assert CONFIG is not None, "CONFIG must be initialized before use"
+        overlap = CONFIG.chunk_overlap
+
     text = text.strip()
     if not text:
         return []
@@ -231,8 +273,8 @@ def _html_to_text(path: str) -> str:
 
 def _safe_dpi_for_page(
     page: PDFPage,
-    max_pixels: Optional[int] = CONFIG.max_pixels,
-    max_side: int = CONFIG.max_side,
+    max_pixels: Optional[int] = None,
+    max_side: Optional[int] = None,
     base_dpi: int = config.BASE_DPI,
 ) -> int:
     """Calculate safe DPI for page rendering to avoid memory issues.
@@ -246,6 +288,14 @@ def _safe_dpi_for_page(
     Returns:
         int: Safe DPI value (minimum 72)
     """
+    # Resolve config values if not provided
+    if max_pixels is None:
+        assert CONFIG is not None, "CONFIG must be initialized before use"
+        max_pixels = CONFIG.max_pixels
+    if max_side is None:
+        assert CONFIG is not None, "CONFIG must be initialized before use"
+        max_side = CONFIG.max_side
+
     # page.rect is in points; 72 points = 1 inch
     rect = page.rect
     if rect.width == 0 or rect.height == 0:
@@ -267,11 +317,12 @@ def _safe_dpi_for_page(
         scale *= max_side / (h0 * scale)
     dpi = max(
         72, int(base_dpi * scale)
-    )  # don’t go below 72 unless you want more aggressive downscale
+    )  # don't go below 72 unless you want more aggressive downscale
     return dpi
 
 
 def _ocr_pil_image(ocr: PaddleOCR, pil_img: Image.Image) -> str:
+    assert CONFIG is not None, "CONFIG must be initialized before use"
     try:
         arr = np.array(
             pil_img.convert("RGB"), dtype=np.uint8
@@ -289,8 +340,8 @@ def _ocr_page_tiled(
     ocr: PaddleOCR,
     page: fitz.Page,
     dpi: int,
-    tile_px: Optional[int] = CONFIG.tile_size,
-    overlap: int = CONFIG.tile_overlap,
+    tile_px: Optional[int] = None,
+    overlap: Optional[int] = None,
 ) -> str:
     """OCR a page by splitting it into tiles to manage memory usage.
 
@@ -304,6 +355,14 @@ def _ocr_page_tiled(
     Returns:
         str: Concatenated OCR text from all tiles
     """
+    # Resolve config values if not provided
+    if tile_px is None:
+        assert CONFIG is not None, "CONFIG must be initialized before use"
+        tile_px = CONFIG.tile_size
+    if overlap is None:
+        assert CONFIG is not None, "CONFIG must be initialized before use"
+        overlap = CONFIG.tile_overlap
+
     rect = page.rect
     s = dpi / 72.0
     full_w = int(rect.width * s)
@@ -311,8 +370,9 @@ def _ocr_page_tiled(
 
     texts = []
     # number of tiles in each dimension
+    # tile_px is resolved from config above, but add fallback for safety
     if tile_px is None:
-        tile_px = CONFIG.tile_size or 600  # fallback if CONFIG.tile_size is also None
+        tile_px = 600  # fallback if CONFIG.tile_size is also None
     nx = max(1, math.ceil(full_w / tile_px))
     ny = max(1, math.ceil(full_h / tile_px))
 
@@ -382,6 +442,7 @@ def _pdf_page_text_or_ocr(
     Returns:
         str: Extracted text from the page
     """
+    assert CONFIG is not None, "CONFIG must be initialized before use"
     # 1) Native text first
     text = page.get_text("text") or ""
     if len(text.strip()) > 20:
@@ -395,7 +456,10 @@ def _pdf_page_text_or_ocr(
 
     # 3) OCR path with safe DPI, grayscale, tiling
     dpi = _safe_dpi_for_page(
-        page, max_pixels=CONFIG.max_pixels, max_side=CONFIG.max_side, base_dpi=config.BASE_DPI
+        page,
+        max_pixels=CONFIG.max_pixels,
+        max_side=CONFIG.max_side,
+        base_dpi=config.BASE_DPI,
     )
 
     rect = page.rect
@@ -494,6 +558,7 @@ def _should_skip_file(path: str, ext: str, processed: Set[str]) -> Tuple[bool, s
     Returns:
         tuple[bool, str]: (should_skip, reason)
     """
+    assert CONFIG is not None, "CONFIG must be initialized before use"
     # Check if filename is in skip list
     filename = os.path.basename(path)
     if filename in CONFIG.skip_files:
@@ -534,6 +599,7 @@ def _should_skip_file(path: str, ext: str, processed: Set[str]) -> Tuple[bool, s
 
 def _load_existing_index() -> Tuple[Optional["faiss.Index"], List[Dict[str, Any]]]:
     """Load existing FAISS index and metadata if they exist."""
+    assert CONFIG is not None, "CONFIG must be initialized before use"
     if (
         CONFIG.index_path
         and CONFIG.index_path.exists()
@@ -560,6 +626,7 @@ def _load_processed_files() -> Set[str]:
     Returns:
         set[str]: Set of file hashes that have been processed
     """
+    assert CONFIG is not None, "CONFIG must be initialized before use"
     processed_hashes = set()
 
     if CONFIG.processed_log and CONFIG.processed_log.exists():
@@ -599,6 +666,7 @@ def _scan_and_process_files(
     processed: Set[str],
 ) -> ProcessingStats:
     """Scan directory and process all supported files."""
+    assert CONFIG is not None, "CONFIG must be initialized before use"
     file_count = 0
     chunk_total = len(metadata) if metadata else 0
     skipped_already_processed = 0
@@ -691,6 +759,7 @@ def _print_summary(
     skip_reasons: Dict[str, int],
 ) -> None:
     """Print processing summary statistics."""
+    assert CONFIG is not None, "CONFIG must be initialized before use"
     print("-------------------------------------------------")
     print(f"✅ Done. Files processed: {file_count} | Chunks: {chunk_total}")
     print(f"📋 Already processed: {skipped_already_processed}")
@@ -711,6 +780,9 @@ def _print_summary(
 # -----------------------
 def build_index(root_folder: str) -> None:
     """Main function to build FAISS index from documents in a folder."""
+    assert (
+        CONFIG is not None and OCR_PROCESSOR is not None
+    ), "Global instances must be initialized before use"
     root_path = Path(root_folder)
 
     if not root_path.is_dir():
@@ -801,6 +873,7 @@ def _process_file(
     Process a single file: extract text, chunk, embed, and add to FAISS + metadata.
     Returns (index, chunk_count) - index may be newly created if it was None.
     """
+    assert CONFIG is not None, "CONFIG must be initialized before use"
     raw_text = _extract_text(path, ocr)
     text = _clean_text(raw_text)
     chunks = _chunk_text(text)
@@ -893,11 +966,80 @@ if __name__ == "__main__":
         "folder",
         help="Root folder of documents to process",
     )
+    ap.add_argument(
+        "--config-menu",
+        action="store_true",
+        help="Launch configuration menu to modify settings",
+    )
     args = ap.parse_args()
 
     if not args.folder:
         print("📁 Error: Please specify a folder path to process!")
         print("Usage: python ingest_folder.py <folder_path>")
+        print("       python ingest_folder.py <folder_path> --config-menu")
         sys.exit(1)
+
+    # Check if this is first run or user requested config menu
+    config_file = "user_config.json"
+    first_run = not Path(config_file).exists()
+
+    user_config = None
+
+    if first_run or args.config_menu:
+        try:
+            from menu import launch_config_menu
+
+            # Clear screen for cleaner menu experience
+            os.system("cls" if os.name == "nt" else "clear")
+
+            if first_run:
+                print("🔧 First run detected! Launching configuration setup...")
+                print("   This will help optimize settings for your system.")
+            else:
+                print("🔧 Launching configuration menu...")
+
+            user_config = launch_config_menu(config_file)
+            if user_config:
+                print("✅ Configuration saved! Using custom settings for ingestion.")
+            else:
+                if first_run:
+                    print(
+                        "⚠️ Configuration cancelled. Using default settings for first run."
+                    )
+                else:
+                    print("⚠️ Configuration cancelled. Using existing settings.")
+        except ImportError:
+            print("⚠️ Configuration menu not available. Install dependencies:")
+            print("   pip install prompt_toolkit>=3.0.51")
+            if first_run:
+                print("   Continuing with default settings for first run...")
+        except Exception as e:
+            print(f"⚠️ Error with configuration menu: {e}")
+            print("Continuing with default settings...")
+    elif Path(config_file).exists():
+        # Load existing user config if available
+        try:
+            from menu import ConfigMenu
+
+            menu = ConfigMenu(config_file)
+            user_config = menu.load_params()
+            print(f"📋 Loading existing configuration from {config_file}")
+            print("✅ Custom configuration loaded successfully!")
+        except Exception as e:
+            print(f"⚠️ Error loading user config: {e}")
+            print("Using default configuration...")
+
+    # Apply user configuration to environment and initialize libraries
+    _apply_user_configuration(user_config)
+
+    # Apply configuration to config module for backwards compatibility
+    if user_config:
+        for key, value in user_config.items():
+            if hasattr(config, key):
+                setattr(config, key, value)
+    config.validate_config()
+
+    # Initialize global instances after configuration is applied
+    _initialize_global_instances()
 
     build_index(args.folder)
