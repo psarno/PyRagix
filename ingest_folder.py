@@ -26,13 +26,88 @@ import hashlib
 from io import BytesIO
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import (
+    Optional,
+    Union,
+    Tuple,
+    List,
+    Dict,
+    Set,
+    Any,
+    Iterator,
+    Protocol,
+    cast,
+)
+from typing_extensions import TypedDict
 from contextlib import contextmanager
+
+
+# Protocol definitions for PyMuPDF types
+class PDFRect(Protocol):
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    width: float
+    height: float
+
+
+class PDFPixmap(Protocol):
+    def getPNGdata(self) -> bytes: ...
+
+
+class PDFPage(Protocol):
+    rect: PDFRect
+
+    def get_text(self, output: str = ...) -> str: ...
+    def get_pixmap(
+        self,
+        matrix: Any = ...,
+        colorspace: Any = ...,
+        alpha: bool = ...,
+        clip: Any = ...,
+    ) -> PDFPixmap: ...
+    def get_images(self, full: bool = ...) -> List[Tuple[int, ...]]: ...
+
+
+class PDFDocument(Protocol):
+    page_count: int
+
+    def __iter__(self) -> Iterator[PDFPage]: ...
+    def extract_image(self, xref: int) -> Optional[Dict[str, Any]]: ...
+    def widgets(self) -> List[Any]: ...
+
+
+# Type definitions
+class ProcessingStats(TypedDict):
+    index: Optional["faiss.Index"]
+    file_count: int
+    chunk_total: int
+    skipped_already_processed: int
+    skipped_problems: int
+    skip_reasons: Dict[str, int]
+
+
+class ProcessingResult(TypedDict):
+    index: Optional["faiss.Index"]
+    chunk_count: int
+
 
 # ===============================
 # Runtime environment settings
 # ===============================
 import config
+
+# Set up logging early
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("ingestion.log", encoding="utf-8"),
+    ],
+)
 
 # Cap library threading
 os.environ["OPENBLAS_NUM_THREADS"] = str(config.OPENBLAS_NUM_THREADS)
@@ -48,9 +123,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = config.CUDA_VISIBLE_DEVICES
 # ===============================
 # Core Numerical / Utility
 # ===============================
-from numpy.typing import NDArray
 import numpy as np
-import psutil
 
 # ===============================
 # GPU Frameworks (order critical)
@@ -58,7 +131,9 @@ import psutil
 import torch
 
 torch.set_num_threads(config.TORCH_NUM_THREADS)
-print("Torch loaded:", torch.__version__, "CUDA available:", torch.cuda.is_available())
+logger.info(
+    f"Torch loaded: {torch.__version__}, CUDA available: {torch.cuda.is_available()}"
+)
 
 from sentence_transformers import SentenceTransformer
 
@@ -67,7 +142,7 @@ from sentence_transformers import SentenceTransformer
 # ===============================
 import faiss
 
-print("FAISS version:", faiss.__version__)
+logger.info(f"FAISS version: {faiss.__version__}")
 
 # ===============================
 # Other AI Frameworks
@@ -75,7 +150,7 @@ print("FAISS version:", faiss.__version__)
 import paddle
 from paddleocr import PaddleOCR
 
-print("Paddle compiled with CUDA:", paddle.device.is_compiled_with_cuda())
+logger.info(f"Paddle compiled with CUDA: {paddle.device.is_compiled_with_cuda()}")
 
 # ===============================
 # Imaging / Document Parsers
@@ -83,91 +158,16 @@ print("Paddle compiled with CUDA:", paddle.device.is_compiled_with_cuda())
 from PIL import Image
 import fitz  # PyMuPDF
 from bs4 import BeautifulSoup
+from ProcessingConfig import ProcessingConfig
+from ocr_processor import OCRProcessor
 
-
-@dataclass
-class ProcessingConfig:
-    """Configuration for document processing and ingestion."""
-
-    # Supported file extensions
-    doc_extensions: set[str] = field(default_factory=set)
-
-    # Text processing
-    chunk_size: int = 1600  # characters
-    chunk_overlap: int = 200  # characters
-    embed_model: str = "all-MiniLM-L6-v2"
-
-    # File paths
-    index_path: Path = field(default_factory=lambda: Path("local_faiss.index"))
-    meta_path: Path = field(default_factory=lambda: Path("documents.pkl"))
-    processed_log: Path = field(default_factory=lambda: Path("processed_files.txt"))
-    # Processing behavior
-    top_print_every: int = 5  # print every N files
-
-    # Memory-based settings (set dynamically)
-    max_pixels: Optional[int] = None
-    tile_size: Optional[int] = None
-    max_side: int = 2000  # hard cap on either side
-    tile_overlap: int = 40  # small overlap so words at tile edges aren't cut
-    use_ocr_cls: bool = False  # angle classifier off to save memory
-
-    # Skip criteria
-    max_file_mb: int = 200  # skip PDFs/images bigger than this
-    max_pdf_pages: int = 200  # skip PDFs with more pages
-    skip_form_pdfs: bool = True  # skip PDFs containing form fields
-    skip_files: set[str] = field(
-        default_factory=set
-    )  # Hard-coded list of files to skip
-
-    # Default folder to process (can be overridden by command line)
-    default_folder: str = "C:\\Users\\psarn\\OneDrive\\Documents\\Covid-19"
-
-    def __post_init__(self):
-        if not self.doc_extensions:
-            self.doc_extensions = {
-                ".pdf",
-                ".html",
-                ".htm",
-                ".png",
-                ".jpg",
-                ".jpeg",
-                ".tif",
-                ".tiff",
-                ".bmp",
-                ".webp",
-            }
-
-        if not self.skip_files:
-            self.skip_files = config.SKIP_FILES
-
-        # Set memory-based parameters
-        total_ram_gb = psutil.virtual_memory().total / (1024**3)
-        if total_ram_gb >= 32:
-            # High-end systems
-            self.max_pixels = 1_800_000  # ~1.8 MP per render
-            self.tile_size = 1200
-        elif total_ram_gb >= 16:
-            # Mid-range systems- very conservative due to memory fragmentation
-            self.max_pixels = (
-                200_000  # ~0.2 MP per render (reduced further for stability)
-            )
-            self.tile_size = 400
-        else:
-            # Low-memory systems
-            self.max_pixels = 400_000  # ~0.4 MP per render
-            self.tile_size = 600
-
-        print(
-            f"🖥️  Detected {total_ram_gb:.1f}GB RAM - using MAX_PIXELS={self.max_pixels:,}, TILE_SIZE={self.tile_size}"
-        )
-
-
-# Global config instance
+# Global instances
 CONFIG = ProcessingConfig()
+OCR_PROCESSOR = OCRProcessor(CONFIG)
 
 
 @contextmanager
-def _memory_cleanup():
+def _memory_cleanup() -> Iterator[None]:
     """Context manager for automatic memory cleanup after processing."""
     try:
         yield
@@ -177,22 +177,6 @@ def _memory_cleanup():
         # Keep VRAM stable
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-
-
-def _init_ocr() -> PaddleOCR:
-
-    # Suppress PaddleOCR warnings
-    logging.getLogger("paddleocr").setLevel(logging.ERROR)
-
-    # Force CPU; angle classifier off (we handle orientation OK in most docs)
-    ocr = PaddleOCR(lang="en", use_angle_cls=False, use_gpu=False)
-
-    try:
-        dev = getattr(getattr(paddle, "device", None), "get_device", lambda: "cpu")()
-        print(f"ℹ️ PaddlePaddle: {paddle.__version__} | Device: {dev}")
-    except (AttributeError, TypeError):
-        print("⚠️ Could not print Paddle version/device.")
-    return ocr
 
 
 def _init_embedder() -> SentenceTransformer:
@@ -205,8 +189,8 @@ def _clean_text(s: str) -> str:
 
 
 def _chunk_text(
-    text: str, size=CONFIG.chunk_size, overlap=CONFIG.chunk_overlap
-) -> list[str]:
+    text: str, size: int = CONFIG.chunk_size, overlap: int = CONFIG.chunk_overlap
+) -> List[str]:
     text = text.strip()
     if not text:
         return []
@@ -224,7 +208,9 @@ def _html_to_text(path: str) -> str:
     # Prefer lxml if available; fall back gracefully
     parser = "lxml"
     try:
-        import lxml
+        import lxml as _lxml  # Check availability but don't use directly
+
+        _ = _lxml  # Suppress unused import warning
     except ImportError:
         parser = "html.parser"
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -235,8 +221,11 @@ def _html_to_text(path: str) -> str:
 
 
 def _safe_dpi_for_page(
-    page, max_pixels=CONFIG.max_pixels, max_side=CONFIG.max_side, base_dpi=150
-):
+    page: PDFPage,
+    max_pixels: Optional[int] = CONFIG.max_pixels,
+    max_side: int = CONFIG.max_side,
+    base_dpi: int = 150,
+) -> int:
     """Calculate safe DPI for page rendering to avoid memory issues.
 
     Args:
@@ -261,7 +250,7 @@ def _safe_dpi_for_page(
     # Start from base_dpi and adjust down if needed
     w0, h0 = px_for(base_dpi)
     scale = 1.0
-    if w0 * h0 > max_pixels:
+    if max_pixels is not None and w0 * h0 > max_pixels:
         scale *= math.sqrt(max_pixels / (w0 * h0))
     if w0 * scale > max_side:
         scale *= max_side / (w0 * scale)
@@ -273,7 +262,7 @@ def _safe_dpi_for_page(
     return dpi
 
 
-def _ocr_pil_image(ocr, pil_img) -> str:
+def _ocr_pil_image(ocr: PaddleOCR, pil_img: Image.Image) -> str:
     try:
         arr = np.array(pil_img.convert("RGB"))  # Paddle expects RGB ndarray
         result = ocr.ocr(arr, cls=CONFIG.use_ocr_cls)
@@ -281,12 +270,16 @@ def _ocr_pil_image(ocr, pil_img) -> str:
             return ""
         return "\n".join([line[1][0] for line in result[0]])
     except (RuntimeError, KeyboardInterrupt, OSError) as e:
-        print(f"⚠️  OCR failed on PIL image: {e}")
+        logger.error(f"⚠️  OCR failed on PIL image: {e}")
         return ""
 
 
 def _ocr_page_tiled(
-    ocr, page, dpi, tile_px=CONFIG.tile_size, overlap=CONFIG.tile_overlap
+    ocr: PaddleOCR,
+    page: fitz.Page,
+    dpi: int,
+    tile_px: Optional[int] = CONFIG.tile_size,
+    overlap: int = CONFIG.tile_overlap,
 ) -> str:
     """OCR a page by splitting it into tiles to manage memory usage.
 
@@ -332,14 +325,19 @@ def _ocr_page_tiled(
             clip = fitz.Rect(x0, y0, x1, y1)
 
             try:
+
+                # Explicitly cast to the fitz.Page type to satisfy Pylance
+                typed_page = cast(fitz.Page, page)
+
                 # GRAY, no alpha massively reduces memory (n=1 channel)
-                pix = page.get_pixmap(
+                pix = typed_page.get_pixmap(  # type: ignore
                     matrix=fitz.Matrix(s, s),
                     colorspace=fitz.csGRAY,
                     alpha=False,
                     clip=clip,
                 )
-                # Avoid pix.samples → use compressed PNG bytes
+
+                # Avoid pix.samples  → use compressed PNG bytes
                 png_bytes = pix.getPNGdata()
                 im = Image.open(BytesIO(png_bytes))
                 txt = _ocr_pil_image(ocr, im)
@@ -360,26 +358,9 @@ def _ocr_page_tiled(
     return "\n".join(texts)
 
 
-def _ocr_embedded_images(doc, page, ocr) -> str:
-    out = []
-    try:
-        imgs = page.get_images(full=True) or []
-        for xref, *_ in imgs:
-            try:
-                img = doc.extract_image(xref)
-                if img is not None and "image" in img:
-                    im = Image.open(BytesIO(img["image"]))
-                    out.append(_ocr_pil_image(ocr, im))
-            except (KeyError, OSError, ValueError, TypeError):
-                # Image extraction/processing errors
-                continue
-    except (AttributeError, RuntimeError):
-        # PDF processing errors
-        pass
-    return "\n".join([t for t in out if t.strip()])
-
-
-def _pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
+def _pdf_page_text_or_ocr(
+    page: Any, ocr: OCRProcessor, doc: Optional[Any] = None
+) -> str:
     """Extract text from PDF page using native text first, then OCR fallback.
 
     Args:
@@ -397,7 +378,7 @@ def _pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
 
     # 2) Try embedded images (cheaper than full render)
     if doc is not None:
-        emb_txt = _ocr_embedded_images(doc, page, ocr)
+        emb_txt = ocr.ocr_embedded_images(doc, page)
         if emb_txt.strip():
             return emb_txt
 
@@ -422,31 +403,31 @@ def _pdf_page_text_or_ocr(page, ocr, doc=None) -> str:
             )
             png_bytes = pix.getPNGdata()
             im = Image.open(BytesIO(png_bytes))
-            return _ocr_pil_image(ocr, im)
+            return ocr.ocr_pil_image(im)
         except MemoryError:
-            return _ocr_page_tiled(ocr, page, dpi)
+            return ocr.ocr_page_tiled(page, dpi)
         except (OSError, RuntimeError, ValueError):
             # Image processing/OCR errors
             return ""
 
     # Larger pages → tiled OCR
-    return _ocr_page_tiled(ocr, page, dpi)
+    return ocr.ocr_page_tiled(page, dpi)
 
 
-def _extract_from_pdf(path: str, ocr) -> str:
+def _extract_from_pdf(path: str, ocr: OCRProcessor) -> str:
     out = []
     with fitz.open(path) as doc:  # type: ignore[attr-defined]
         for p in doc:
             try:
                 out.append(_pdf_page_text_or_ocr(p, ocr, doc=doc))
             except (RuntimeError, MemoryError, OSError) as e:
-                print(f"⚠️ Error processing PDF page: {type(e).__name__}: {e}")
-                traceback.print_exc()
+                logger.error(f"⚠️ Error processing PDF page: {type(e).__name__}: {e}")
+                logger.debug("Full traceback:", exc_info=True)
                 continue
     return "\n".join(out)
 
 
-def _extract_from_image(path: str, ocr) -> str:
+def _extract_from_image(path: str, ocr: PaddleOCR) -> str:
     # Open -> RGB -> ndarray -> OCR with memory error handling
     try:
         with Image.open(path) as im:
@@ -466,11 +447,11 @@ def _extract_from_image(path: str, ocr) -> str:
                 return ""
             return "\n".join([line[1][0] for line in result[0]])
         except (RuntimeError, KeyboardInterrupt) as e:
-            print(f"⚠️  OCR failed for {path}: {e}")
+            logger.error(f"⚠️  OCR failed for {path}: {e}")
             return ""
 
     except (MemoryError, RuntimeError) as e:
-        print(f"⚠️  Memory error for {path}, trying smaller size: {e}")
+        logger.warning(f"⚠️  Memory error for {path}, trying smaller size: {e}")
         try:
             # Try again with much smaller image
             with Image.open(path) as im:
@@ -483,38 +464,35 @@ def _extract_from_image(path: str, ocr) -> str:
                     return ""
                 return "\n".join([line[1][0] for line in result[0]])
             except (RuntimeError, KeyboardInterrupt) as e:
-                print(f"⚠️  OCR retry failed for {path}: {e}")
+                logger.error(f"⚠️  OCR retry failed for {path}: {e}")
                 return ""
         except (MemoryError, RuntimeError):
-            print(f"⚠️  Still out of memory for {path} even at reduced size")
+            logger.error(f"⚠️  Still out of memory for {path} even at reduced size")
             return ""
         except (OSError, ValueError, RuntimeError) as e:
-            print(
+            logger.error(
                 f"⚠️  Failed to process {path} even at reduced size: {type(e).__name__}: {e}"
             )
             return ""
     except (OSError, ValueError) as e:
-        print(f"⚠️  Image processing failed for {path}: {type(e).__name__}: {e}")
+        logger.error(f"⚠️  Image processing failed for {path}: {type(e).__name__}: {e}")
         return ""
 
 
-def _extract_text(path: str, ocr) -> str:
+def _extract_text(path: str, ocr: OCRProcessor) -> str:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
         return _extract_from_pdf(path, ocr)
     elif ext in {".html", ".htm"}:
         return _html_to_text(path)
     else:
-        return _extract_from_image(path, ocr)
-
-
-def _l2_normalize(mat: np.ndarray) -> np.ndarray:
-    norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
-    return mat / norms
+        return ocr.extract_from_image(path)
 
 
 def _calculate_file_hash(path: str) -> str:
     """Calculate SHA256 hash of file contents for duplicate detection.
+
+    Uses optimized chunk size based on file size for better performance.
 
     Args:
         path: Full file path
@@ -523,18 +501,30 @@ def _calculate_file_hash(path: str) -> str:
         str: Hex digest of file hash, or empty string if file can't be read
     """
     try:
+        file_size = os.path.getsize(path)
+
+        # Optimize chunk size based on file size
+        if file_size < 1024 * 1024:  # < 1MB
+            chunk_size = 4096  # 4KB
+        elif file_size < 10 * 1024 * 1024:  # < 10MB
+            chunk_size = 64 * 1024  # 64KB
+        elif file_size < 100 * 1024 * 1024:  # < 100MB
+            chunk_size = 256 * 1024  # 256KB
+        else:  # >= 100MB
+            chunk_size = 1024 * 1024  # 1MB
+
         hash_sha256 = hashlib.sha256()
         with open(path, "rb") as f:
-            # Read in chunks to handle large files efficiently
-            for chunk in iter(lambda: f.read(4096), b""):
+            # Read in optimized chunks to handle large files efficiently
+            for chunk in iter(lambda: f.read(chunk_size), b""):
                 hash_sha256.update(chunk)
         return hash_sha256.hexdigest()
     except (OSError, IOError, MemoryError) as e:
-        print(f"⚠️ Could not hash {os.path.basename(path)}: {e}")
+        logger.error(f"⚠️ Could not hash {os.path.basename(path)}: {e}")
         return ""
 
 
-def _should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
+def _should_skip_file(path: str, ext: str, processed: Set[str]) -> Tuple[bool, str]:
     """Determine if a file should be skipped during processing.
 
     Args:
@@ -583,7 +573,7 @@ def _should_skip_file(path: str, ext: str, processed: set) -> tuple[bool, str]:
     return False, ""  # do not skip
 
 
-def _load_existing_index() -> tuple[Optional[faiss.Index], list[dict]]:
+def _load_existing_index() -> Tuple[Optional["faiss.Index"], List[Dict[str, Any]]]:
     """Load existing FAISS index and metadata if they exist."""
     if (
         CONFIG.index_path
@@ -603,7 +593,7 @@ def _load_existing_index() -> tuple[Optional[faiss.Index], list[dict]]:
         return None, []
 
 
-def _load_processed_files() -> set[str]:
+def _load_processed_files() -> Set[str]:
     """Load the set of already processed file hashes from the log.
 
     Expected format: "hash|filename"
@@ -620,7 +610,7 @@ def _load_processed_files() -> set[str]:
                     line = line.strip()
                     if line and "|" in line:
                         try:
-                            file_hash, filename = line.split("|", 1)
+                            file_hash, _ = line.split("|", 1)
                             processed_hashes.add(file_hash)
                         except ValueError:
                             # Malformed line, skip
@@ -642,8 +632,13 @@ def _load_processed_files() -> set[str]:
 
 
 def _scan_and_process_files(
-    root_path, ocr, embedder, index, metadata, processed
-) -> tuple[Optional[faiss.Index], int, int, int, int, dict[str, int]]:
+    root_path: Union[str, Path],
+    ocr: OCRProcessor,
+    embedder: SentenceTransformer,
+    index: Optional["faiss.Index"],
+    metadata: List[Dict[str, Any]],
+    processed: Set[str],
+) -> ProcessingStats:
     """Scan directory and process all supported files."""
     file_count = 0
     chunk_total = len(metadata) if metadata else 0
@@ -676,9 +671,9 @@ def _scan_and_process_files(
 
                 file_count += 1
                 with _memory_cleanup():
-                    index, chunk_count = _process_file(
-                        path, ocr, embedder, index, metadata
-                    )
+                    result = _process_file(path, ocr, embedder, index, metadata)
+                    index = result["index"]
+                    chunk_count = result["chunk_count"]
                     chunk_total += chunk_count
 
                 # Log processed file with hash|filename format
@@ -719,18 +714,22 @@ def _scan_and_process_files(
                 with _memory_cleanup():
                     pass
 
-    return (
-        index,
-        file_count,
-        chunk_total,
-        skipped_already_processed,
-        skipped_problems,
-        skip_reasons,
-    )
+    return {
+        "index": index,
+        "file_count": file_count,
+        "chunk_total": chunk_total,
+        "skipped_already_processed": skipped_already_processed,
+        "skipped_problems": skipped_problems,
+        "skip_reasons": skip_reasons,
+    }
 
 
 def _print_summary(
-    file_count, chunk_total, skipped_already_processed, skipped_problems, skip_reasons
+    file_count: int,
+    chunk_total: int,
+    skipped_already_processed: int,
+    skipped_problems: int,
+    skip_reasons: Dict[str, int],
 ) -> None:
     """Print processing summary statistics."""
     print("-------------------------------------------------")
@@ -787,7 +786,7 @@ def build_index(root_folder: str) -> None:
         print("ℹ🧹 Cleared existing index for fresh run")
 
     print(f"🔎 Scanning: {root_path}")
-    ocr = _init_ocr()
+    ocr = OCR_PROCESSOR
     embedder = _init_embedder()
 
     # Load existing index and metadata
@@ -799,23 +798,20 @@ def build_index(root_folder: str) -> None:
     # Scan and process files
     print("🔄 Starting file scan and processing...")
     try:
-        (
-            index,
-            file_count,
-            chunk_total,
-            skipped_already_processed,
-            skipped_problems,
-            skip_reasons,
-        ) = _scan_and_process_files(
+        stats = _scan_and_process_files(
             root_path, ocr, embedder, index, metadata, processed
         )
+        index = stats["index"]
+        file_count = stats["file_count"]
+        chunk_total = stats["chunk_total"]
+        skipped_already_processed = stats["skipped_already_processed"]
+        skipped_problems = stats["skipped_problems"]
+        skip_reasons = stats["skip_reasons"]
         print(
             f"✅ File processing completed. Got {file_count} files, {chunk_total} chunks"
         )
     except Exception as e:
         print(f"❌ Fatal error during file processing: {type(e).__name__}: {e}")
-        import traceback
-
         traceback.print_exc()
         sys.exit(1)
 
@@ -836,8 +832,12 @@ def build_index(root_folder: str) -> None:
 
 
 def _process_file(
-    path, ocr, embedder, index, metadata
-) -> tuple[Optional[faiss.Index], int]:
+    path: str,
+    ocr: OCRProcessor,
+    embedder: SentenceTransformer,
+    index: Optional["faiss.Index"],
+    metadata: List[Dict[str, Any]],
+) -> ProcessingResult:
     """
     Process a single file: extract text, chunk, embed, and add to FAISS + metadata.
     Returns (index, chunk_count) - index may be newly created if it was None.
@@ -847,19 +847,20 @@ def _process_file(
     chunks = _chunk_text(text)
 
     if not chunks:
-        return index, 0  # zero chunks processed
+        return {"index": index, "chunk_count": 0}  # zero chunks processed
 
     # Embeddings
     embs: Optional[np.ndarray] = None
     with torch.inference_mode(), torch.autocast(
         "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
     ):
-        embs = embedder.encode(
+        embs_raw = embedder.encode(
             chunks,
             batch_size=config.BATCH_SIZE,
             convert_to_numpy=True,
             normalize_embeddings=True,
-        ).astype(np.float32)
+        )
+        embs = np.asarray(embs_raw).astype(np.float32)
 
     # Initialize FAISS if needed (only happens on very first file)
     if index is None and embs is not None:
@@ -881,7 +882,7 @@ def _process_file(
     with open(CONFIG.meta_path, "wb") as f:
         pickle.dump(metadata, f)
 
-    return index, len(chunks)
+    return {"index": index, "chunk_count": len(chunks)}
 
 
 # -----------------------
