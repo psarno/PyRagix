@@ -1,7 +1,7 @@
 # ======================================
 # Ingestion script (laptop-optimized)
 # - Designed for 16 GB RAM / 6 GB VRAM
-# - Torch threads capped at 2
+# - Torch threads capped at 4
 # - CUDA alloc split tuned for GTX 1660 Ti
 # - PaddleOCR runs with device fallback
 #
@@ -436,7 +436,6 @@ def _extract_from_pdf(path: str, ocr: OCRProcessor) -> str:
                 logger.debug("Full traceback:", exc_info=True)
                 continue
     return "\n".join(out)
-
 
 
 def _extract_text(path: str, ocr: OCRProcessor) -> str:
@@ -895,10 +894,10 @@ if __name__ == "__main__":
         help="Root folder of documents to process",
     )
     args = ap.parse_args()
-    
+
     if not args.folder:
         print("📁 Error: Please specify a folder path to process!")
         print("Usage: python ingest_folder.py <folder_path>")
         sys.exit(1)
-    
+
     build_index(args.folder)
