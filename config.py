@@ -9,11 +9,11 @@ from typing import Set, Literal
 IndexType = Literal["flat", "ivf_flat", "ivf_pq"]
 
 # CPU / Threading
-TORCH_NUM_THREADS: int = 2
-OPENBLAS_NUM_THREADS: int = 2
-MKL_NUM_THREADS: int = 2
-OMP_NUM_THREADS: int = 2
-NUMEXPR_MAX_THREADS: int = 2
+TORCH_NUM_THREADS: int = 4
+OPENBLAS_NUM_THREADS: int = 4
+MKL_NUM_THREADS: int = 4
+OMP_NUM_THREADS: int = 4
+NUMEXPR_MAX_THREADS: int = 4
 
 # GPU / CUDA
 CUDA_VISIBLE_DEVICES: str = "0"  # single GPU
