@@ -159,7 +159,7 @@ from PIL import Image
 import fitz  # PyMuPDF
 from bs4 import BeautifulSoup
 from ProcessingConfig import ProcessingConfig
-from ocr_processor import OCRProcessor
+from OCRProcessor import OCRProcessor
 
 # Global instances
 CONFIG = ProcessingConfig()
