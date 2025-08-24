@@ -29,7 +29,8 @@ Thumbs.db
 documents.pkl
 local_faiss.index
 
-# Misc project files (logging, etc.)
+# Misc project files (logging, user config, etc.)
 processed_files.txt
 ingestion.log
 crash_log.txt
+user_config.json
