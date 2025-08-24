@@ -31,6 +31,9 @@ import numpy as np
 import requests
 from sentence_transformers import SentenceTransformer
 
+# Import our config for machine-specific settings
+import config
+
 
 # ===============================
 # Type Definitions
@@ -69,18 +72,18 @@ class OllamaResponse(Protocol):
 # ===============================
 VERSION = "0.0.4"
 
-# Default configuration - can be overridden
+# Default configuration - uses config.py for machine-specific settings
 DEFAULT_CONFIG: RAGConfig = {
     "embed_model": "all-MiniLM-L6-v2",
     "index_path": Path("local_faiss.index"),
     "meta_path": Path("documents.pkl"),
-    "ollama_base_url": "http://localhost:11434",
-    "ollama_model": "llama3.1:8b-instruct-q4_0",
-    "default_top_k": 7,
-    "request_timeout": 60,
-    "temperature": 0.1,
-    "top_p": 0.9,
-    "max_tokens": 500,
+    "ollama_base_url": config.OLLAMA_BASE_URL,
+    "ollama_model": config.OLLAMA_MODEL,
+    "default_top_k": config.DEFAULT_TOP_K,
+    "request_timeout": config.REQUEST_TIMEOUT,
+    "temperature": config.TEMPERATURE,
+    "top_p": config.TOP_P,
+    "max_tokens": config.MAX_TOKENS,
 }
 
 

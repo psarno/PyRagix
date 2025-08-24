@@ -107,7 +107,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("ingestion.log", encoding="utf-8"),
+        logging.FileHandler(config.INGESTION_LOG_FILE, encoding="utf-8"),
     ],
 )
 
@@ -233,7 +233,7 @@ def _safe_dpi_for_page(
     page: PDFPage,
     max_pixels: Optional[int] = CONFIG.max_pixels,
     max_side: int = CONFIG.max_side,
-    base_dpi: int = 150,
+    base_dpi: int = config.BASE_DPI,
 ) -> int:
     """Calculate safe DPI for page rendering to avoid memory issues.
 
@@ -395,7 +395,7 @@ def _pdf_page_text_or_ocr(
 
     # 3) OCR path with safe DPI, grayscale, tiling
     dpi = _safe_dpi_for_page(
-        page, max_pixels=CONFIG.max_pixels, max_side=CONFIG.max_side, base_dpi=150
+        page, max_pixels=CONFIG.max_pixels, max_side=CONFIG.max_side, base_dpi=config.BASE_DPI
     )
 
     rect = page.rect
@@ -657,7 +657,7 @@ def _scan_and_process_files(
                 )
 
                 # Log detailed crash info to separate file
-                with open("crash_log.txt", "a", encoding="utf-8") as f:
+                with open(config.CRASH_LOG_FILE, "a", encoding="utf-8") as f:
                     f.write(f"\n{'='*60}\n")
                     f.write(f"CRASHED FILE: {path}\n")
                     f.write(f"ERROR TYPE: {error_type}\n")
@@ -718,7 +718,7 @@ def build_index(root_folder: str) -> None:
         sys.exit(1)
 
     # Clear crash log from previous runs
-    crash_log_path = Path("crash_log.txt")
+    crash_log_path = Path(config.CRASH_LOG_FILE)
     if crash_log_path.exists():
         crash_log_path.unlink()
         print("🗑️  Cleared previous crash log")
@@ -834,7 +834,7 @@ def _process_file(
 
         # Retry with smaller batch size
         try:
-            smaller_batch = max(1, config.BATCH_SIZE // 4)
+            smaller_batch = max(1, config.BATCH_SIZE // config.BATCH_SIZE_RETRY_DIVISOR)
             logger.info(
                 f"🔄 Retrying embedding with smaller batch size: {smaller_batch}"
             )
