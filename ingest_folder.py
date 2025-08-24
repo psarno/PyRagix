@@ -97,6 +97,9 @@ class ProcessingResult(TypedDict):
 # ===============================
 import config
 
+# Validate configuration on startup
+config.validate_config()
+
 # Set up logging early
 logger = logging.getLogger(__name__)
 logging.basicConfig(
