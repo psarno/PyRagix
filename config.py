@@ -20,7 +20,7 @@ CUDA_VISIBLE_DEVICES: str = "0"  # single GPU
 PYTORCH_CUDA_ALLOC_CONF: str = "max_split_size_mb:1024,garbage_collection_threshold:0.9"
 
 # Sentence-Transformers
-BATCH_SIZE: int = 16  # safe for 6GB GTX 1660 Ti
+BATCH_SIZE: int = 16
 
 # FAISS
 
