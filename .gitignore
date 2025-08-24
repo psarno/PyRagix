@@ -22,6 +22,10 @@ __pycache__/
 Thumbs.db
 .DS_Store
 
+# Claude Code files
+.claude/
+claude.md
+
 # Large FAISS vector storage files
 documents.pkl
 local_faiss.index
@@ -29,3 +33,4 @@ local_faiss.index
 # Misc project files (logging, etc.)
 processed_files.txt
 ingestion.log
+crash_log.txt
