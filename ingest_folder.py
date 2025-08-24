@@ -178,6 +178,13 @@ def _memory_cleanup() -> Iterator[None]:
             torch.cuda.empty_cache()
 
 
+def _cleanup_memory() -> None:
+    """Force garbage collection and CUDA memory cleanup."""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def _init_embedder() -> SentenceTransformer:
     return SentenceTransformer(CONFIG.embed_model)
 
@@ -263,7 +270,9 @@ def _safe_dpi_for_page(
 
 def _ocr_pil_image(ocr: PaddleOCR, pil_img: Image.Image) -> str:
     try:
-        arr = np.array(pil_img.convert("RGB"))  # Paddle expects RGB ndarray
+        arr = np.array(
+            pil_img.convert("RGB"), dtype=np.uint8
+        )  # Paddle expects RGB ndarray
         result = ocr.ocr(arr, cls=CONFIG.use_ocr_cls)
         if not result or not result[0]:
             return ""
@@ -426,57 +435,6 @@ def _extract_from_pdf(path: str, ocr: OCRProcessor) -> str:
     return "\n".join(out)
 
 
-def _extract_from_image(path: str, ocr: PaddleOCR) -> str:
-    # Open -> RGB -> ndarray -> OCR with memory error handling
-    try:
-        with Image.open(path) as im:
-            # Ultra conservative sizing for stability
-            max_pixels = 256 * 256  # 0.065MP max - very small
-            if im.width * im.height > max_pixels:
-                scale = (max_pixels / (im.width * im.height)) ** 0.5
-                new_w = max(64, int(im.width * scale))  # Don't go too small
-                new_h = max(64, int(im.height * scale))
-                im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            im = im.convert("RGB")
-            arr = np.array(im)
-
-        try:
-            result = ocr.ocr(arr, cls=False)  # cls=False to save memory
-            if not result or not result[0]:
-                return ""
-            return "\n".join([line[1][0] for line in result[0]])
-        except (RuntimeError, KeyboardInterrupt) as e:
-            logger.error(f"⚠️  OCR failed for {path}: {e}")
-            return ""
-
-    except (MemoryError, RuntimeError) as e:
-        logger.warning(f"⚠️  Memory error for {path}, trying smaller size: {e}")
-        try:
-            # Try again with much smaller image
-            with Image.open(path) as im:
-                im.thumbnail((128, 128), Image.Resampling.LANCZOS)
-                im = im.convert("RGB")
-                arr = np.array(im)
-            try:
-                result = ocr.ocr(arr, cls=False)
-                if not result or not result[0]:
-                    return ""
-                return "\n".join([line[1][0] for line in result[0]])
-            except (RuntimeError, KeyboardInterrupt) as e:
-                logger.error(f"⚠️  OCR retry failed for {path}: {e}")
-                return ""
-        except (MemoryError, RuntimeError):
-            logger.error(f"⚠️  Still out of memory for {path} even at reduced size")
-            return ""
-        except (OSError, ValueError, RuntimeError) as e:
-            logger.error(
-                f"⚠️  Failed to process {path} even at reduced size: {type(e).__name__}: {e}"
-            )
-            return ""
-    except (OSError, ValueError) as e:
-        logger.error(f"⚠️  Image processing failed for {path}: {type(e).__name__}: {e}")
-        return ""
-
 
 def _extract_text(path: str, ocr: OCRProcessor) -> str:
     ext = os.path.splitext(path)[1].lower()
@@ -546,7 +504,7 @@ def _should_skip_file(path: str, ext: str, processed: Set[str]) -> Tuple[bool, s
     # Check if file hash is already processed
     file_hash = _calculate_file_hash(path)
     if file_hash and file_hash in processed:
-        return True, f"already processed"
+        return True, "already processed"
 
     # File size
     file_size_mb = os.path.getsize(path) / 1024 / 1024
@@ -850,16 +808,51 @@ def _process_file(
 
     # Embeddings
     embs: Optional[np.ndarray] = None
-    with torch.inference_mode(), torch.autocast(
-        "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
-    ):
-        embs_raw = embedder.encode(
-            chunks,
-            batch_size=config.BATCH_SIZE,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-        )
-        embs = np.asarray(embs_raw).astype(np.float32)
+    try:
+        with torch.inference_mode(), torch.autocast(
+            "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
+        ):
+            embs_raw = embedder.encode(
+                chunks,
+                batch_size=config.BATCH_SIZE,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+            )
+            embs = np.asarray(embs_raw).astype(np.float32)
+
+            # Clear CUDA cache after encoding
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    except torch.OutOfMemoryError as e:
+        logger.error(f"⚠️  CUDA out of memory during embedding for {path}: {e}")
+        # Clear CUDA cache and retry with smaller batch size
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        # Retry with smaller batch size
+        try:
+            smaller_batch = max(1, config.BATCH_SIZE // 4)
+            logger.info(
+                f"🔄 Retrying embedding with smaller batch size: {smaller_batch}"
+            )
+            with torch.inference_mode(), torch.autocast(
+                "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
+            ):
+                embs_raw = embedder.encode(
+                    chunks,
+                    batch_size=smaller_batch,
+                    convert_to_numpy=True,
+                    normalize_embeddings=True,
+                )
+                embs = np.asarray(embs_raw).astype(np.float32)
+
+                # Clear CUDA cache after retry
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+        except Exception as retry_e:
+            logger.error(f"⚠️  Failed to embed even with smaller batch: {retry_e}")
+            return {"index": index, "chunk_count": 0}
 
     # Initialize FAISS if needed (only happens on very first file)
     if index is None and embs is not None:
@@ -880,6 +873,9 @@ def _process_file(
     faiss.write_index(index, str(CONFIG.index_path))
     with open(CONFIG.meta_path, "wb") as f:
         pickle.dump(metadata, f)
+
+    # Clean up memory after processing each file
+    _cleanup_memory()
 
     return {"index": index, "chunk_count": len(chunks)}
 

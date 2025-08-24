@@ -3,6 +3,7 @@
 # Handles all OCR operations with PaddleOCR
 # ======================================
 
+import gc
 import logging
 import math
 from io import BytesIO
@@ -42,18 +43,39 @@ class OCRProcessor:
             logger.warning("⚠️ Could not print Paddle version/device.")
         return ocr
 
+    def _cleanup_memory(self) -> None:
+        """Force garbage collection to free up memory."""
+        gc.collect()
+        # Clear Paddle's memory cache if available
+        try:
+            paddle.device.cuda.empty_cache()
+        except (AttributeError, RuntimeError):
+            # Not using CUDA or method not available
+            pass
+
     def ocr_pil_image(self, pil_img: Image.Image) -> str:
         """Extract text from PIL image using OCR."""
         try:
-            arr = np.array(pil_img.convert("RGB"))  # Paddle expects RGB ndarray
+            # Convert and process
+            rgb_img = pil_img.convert("RGB")
+            arr = np.array(rgb_img)
+            
+            # Clear RGB image from memory
+            if rgb_img is not pil_img:
+                rgb_img.close()
+            
             result = self.ocr.ocr(arr, cls=self.config.use_ocr_cls)
+            
+            # Clear array from memory
+            del arr
+            
             if not result or not isinstance(result, list) or not result:
                 return ""
             first_result = result[0] if len(result) > 0 else None
             if not first_result:
                 return ""
             return "\n".join([line[1][0] for line in first_result])
-        except (RuntimeError, KeyboardInterrupt, OSError) as e:
+        except (RuntimeError, KeyboardInterrupt, OSError, MemoryError) as e:
             logger.error(f"⚠️  OCR failed on PIL image: {e}")
             return ""
 
@@ -112,12 +134,25 @@ class OCRProcessor:
                         clip=clip,
                     )
                     # Avoid pix.samples → use compressed PNG bytes
-                    png_bytes = pix.getPNGdata()
+                    png_bytes = pix.tobytes("png")
                     im = Image.open(BytesIO(png_bytes))
                     txt = self.ocr_pil_image(im)
                     if txt.strip():
                         texts.append(txt)
-                except MemoryError:
+                    # Explicit cleanup
+                    pix = None
+                    im.close()
+                    del im, png_bytes
+                    
+                    # Force memory cleanup every 10 tiles
+                    if (iy * nx + ix + 1) % 10 == 0:
+                        self._cleanup_memory()
+                        
+                except (MemoryError, RuntimeError) as e:
+                    # Handle both MemoryError and "could not create a primitive" RuntimeError
+                    if pix:
+                        pix = None
+                    self._cleanup_memory()  # Force cleanup on error
                     # If a tile still fails (rare), try halving tile size once
                     if tile_px is not None and tile_px > 800:
                         return self.ocr_page_tiled(
@@ -166,14 +201,18 @@ class OCRProcessor:
 
             try:
                 result = self.ocr.ocr(arr, cls=False)  # cls=False to save memory
+                del arr  # Free array memory immediately
                 if not result or not isinstance(result, list) or not result:
                     return ""
                 first_result = result[0] if len(result) > 0 else None
                 if not first_result:
                     return ""
-                return "\n".join([line[1][0] for line in first_result])
-            except (RuntimeError, KeyboardInterrupt) as e:
+                text_result = "\n".join([line[1][0] for line in first_result])
+                del result, first_result  # Free result memory
+                return text_result
+            except (RuntimeError, KeyboardInterrupt, MemoryError) as e:
                 logger.error(f"⚠️  OCR failed for {path}: {e}")
+                self._cleanup_memory()
                 return ""
 
         except (MemoryError, RuntimeError) as e:
@@ -186,14 +225,18 @@ class OCRProcessor:
                     arr = np.array(im)
                 try:
                     result = self.ocr.ocr(arr, cls=False)
+                    del arr  # Free array memory immediately
                     if not result or not isinstance(result, list) or not result:
                         return ""
                     first_result = result[0] if len(result) > 0 else None
                     if not first_result:
                         return ""
-                    return "\n".join([line[1][0] for line in first_result])
-                except (RuntimeError, KeyboardInterrupt) as e:
+                    text_result = "\n".join([line[1][0] for line in first_result])
+                    del result, first_result  # Free result memory
+                    return text_result
+                except (RuntimeError, KeyboardInterrupt, MemoryError) as e:
                     logger.error(f"⚠️  OCR retry failed for {path}: {e}")
+                    self._cleanup_memory()
                     return ""
             except (MemoryError, RuntimeError):
                 logger.error(f"⚠️  Still out of memory for {path} even at reduced size")
