@@ -24,7 +24,6 @@ Thumbs.db
 
 # Claude Code files
 .claude/
-claude.md
 
 # Large FAISS vector storage files
 documents.pkl
