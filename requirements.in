@@ -62,3 +62,6 @@ visualdl>=2.5.0
 # General utilities
 attrdict>=2.0.0
 imagesize>=1.4.0
+
+#Interactive menus
+prompt_toolkit>=3.0.51
