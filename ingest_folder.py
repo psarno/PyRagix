@@ -24,7 +24,6 @@ import math
 import gc
 import hashlib
 from io import BytesIO
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
     Optional,
@@ -158,8 +157,8 @@ logger.info(f"Paddle compiled with CUDA: {paddle.device.is_compiled_with_cuda()}
 from PIL import Image
 import fitz  # PyMuPDF
 from bs4 import BeautifulSoup
-from ProcessingConfig import ProcessingConfig
-from OCRProcessor import OCRProcessor
+from classes.ProcessingConfig import ProcessingConfig
+from classes.OCRProcessor import OCRProcessor
 
 # Global instances
 CONFIG = ProcessingConfig()
