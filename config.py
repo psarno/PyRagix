@@ -3,7 +3,6 @@
 # Default: tuned for 16GB RAM / 6GB VRAM laptop
 # ======================================
 
-import os
 from typing import Set, Literal
 
 # Type definitions
