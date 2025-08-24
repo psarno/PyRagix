@@ -35,9 +35,7 @@ NPROBE: int = 16
 # NPROBE = 16
 
 # Files to skip during processing (by filename)
-SKIP_FILES: Set[str] = {
-    "UNC - International Biosafety Committee Meeting Minutes 2019 - Redacted.pdf"
-}
+SKIP_FILES: Set[str] = set()
 
 # PDF Processing settings
 BASE_DPI: int = 150  # Base DPI for PDF page rendering
@@ -84,8 +82,10 @@ def validate_config() -> None:
 
     # Float configs with valid ranges
     if not isinstance(TEMPERATURE, (int, float)) or not (0.0 <= TEMPERATURE <= 2.0):
-        raise ValueError(f"TEMPERATURE must be a float between 0.0 and 2.0, got: {TEMPERATURE}")
-    
+        raise ValueError(
+            f"TEMPERATURE must be a float between 0.0 and 2.0, got: {TEMPERATURE}"
+        )
+
     if not isinstance(TOP_P, (int, float)) or not (0.0 <= TOP_P <= 1.0):
         raise ValueError(f"TOP_P must be a float between 0.0 and 1.0, got: {TOP_P}")
 
@@ -97,10 +97,12 @@ def validate_config() -> None:
         ("OLLAMA_BASE_URL", OLLAMA_BASE_URL),
         ("OLLAMA_MODEL", OLLAMA_MODEL),
     ]
-    
+
     for config_name, config_val in string_configs:
         if not isinstance(config_val, str) or not config_val.strip():
-            raise ValueError(f"{config_name} must be a non-empty string, got: {config_val}")
+            raise ValueError(
+                f"{config_name} must be a non-empty string, got: {config_val}"
+            )
 
     # Index type validation
     valid_index_types = {"flat", "ivf_flat", "ivf_pq"}
