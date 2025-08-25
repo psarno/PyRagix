@@ -15,7 +15,6 @@
 # Standard Library
 # ===============================
 import argparse
-import json
 import logging
 import os
 import sys
@@ -132,21 +131,8 @@ CONFIG: Optional[ProcessingConfig] = None
 OCR_PROCESSOR: Optional[OCRProcessor] = None
 
 
-def _apply_user_configuration(user_config: Optional[Dict[str, Any]] = None) -> None:
-    """Apply user configuration from JSON file to environment variables and torch settings."""
-    if user_config is None:
-        # Try to load from user_config.json
-        config_file = "user_config.json"
-        if os.path.exists(config_file):
-            try:
-                with open(config_file, "r", encoding="utf-8") as f:
-                    user_config = json.load(f)
-            except (json.JSONDecodeError, IOError):
-                logger.warning(f"Could not load {config_file}, using defaults")
-                user_config = {}
-        else:
-            user_config = {}
-
+def _apply_user_configuration() -> None:
+    """Apply configuration from config module to environment variables and torch settings."""
     # Environment variables that need to be set before library imports
     env_vars = [
         "TORCH_NUM_THREADS",
@@ -159,10 +145,7 @@ def _apply_user_configuration(user_config: Optional[Dict[str, Any]] = None) -> N
     ]
 
     for var in env_vars:
-        if user_config and var in user_config:
-            os.environ[var] = str(user_config[var])
-        elif hasattr(config, var):
-            # Fallback to config.py defaults
+        if hasattr(config, var):
             os.environ[var] = str(getattr(config, var))
 
     # Suppress verbose paddle logging
@@ -181,11 +164,8 @@ def _apply_user_configuration(user_config: Optional[Dict[str, Any]] = None) -> N
     ]:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
-    # Configure torch with user settings
-    torch_threads = (user_config or {}).get(
-        "TORCH_NUM_THREADS", getattr(config, "TORCH_NUM_THREADS", 1)
-    )
-    torch.set_num_threads(torch_threads)
+    # Configure torch with settings from config
+    torch.set_num_threads(config.TORCH_NUM_THREADS)
 
     logger.info(
         f"Torch loaded: {torch.__version__}, CUDA available: {torch.cuda.is_available()}"
@@ -959,87 +939,40 @@ def _process_file(
 # CLI
 # -----------------------
 if __name__ == "__main__":
+    # Ensure UTF-8 output for cross-platform emoji support
+    try:
+        # Try to reconfigure stdout to UTF-8 if supported
+        if hasattr(sys.stdout, 'reconfigure') and callable(getattr(sys.stdout, 'reconfigure', None)):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')  # type: ignore
+    except (AttributeError, OSError, Exception):
+        # If reconfigure fails, emojis might not display but won't crash
+        pass
+        
     ap = argparse.ArgumentParser(
         description="Ingest folder -> FAISS (PDF/HTML/Images with OCR fallback)"
     )
     ap.add_argument(
         "folder",
-        help="Root folder of documents to process",
-    )
-    ap.add_argument(
-        "--config-menu",
-        action="store_true",
-        help="Launch configuration menu to modify settings",
+        nargs="?",
+        default=".",
+        help="Root folder of documents to process (default: current directory)",
     )
     args = ap.parse_args()
 
-    if not args.folder:
-        print("📁 Error: Please specify a folder path to process!")
-        print("Usage: python ingest_folder.py <folder_path>")
-        print("       python ingest_folder.py <folder_path> --config-menu")
-        sys.exit(1)
+    # Clear screen for cleaner experience
+    os.system("cls" if os.name == "nt" else "clear")
 
-    # Check if this is first run or user requested config menu
-    config_file = "user_config.json"
-    first_run = not Path(config_file).exists()
+    # Configuration is loaded automatically by config module
+    print(f"Using settings from {config.SETTINGS_FILE}")
 
-    user_config = None
+    # Apply configuration to environment and initialize libraries
+    _apply_user_configuration()
 
-    if first_run or args.config_menu:
-        try:
-            from menu import launch_config_menu
+    # Announce which folder is being processed
+    if args.folder == ".":
+        print("No folder specified, using current directory")
+    else:
+        print(f"Processing folder: {args.folder}")
 
-            # Clear screen for cleaner menu experience
-            os.system("cls" if os.name == "nt" else "clear")
-
-            if first_run:
-                print("🔧 First run detected! Launching configuration setup...")
-                print("   This will help optimize settings for your system.")
-            else:
-                print("🔧 Launching configuration menu...")
-
-            user_config = launch_config_menu(config_file)
-            if user_config:
-                print("✅ Configuration saved! Using custom settings for ingestion.")
-            else:
-                if first_run:
-                    print(
-                        "⚠️ Configuration cancelled. Using default settings for first run."
-                    )
-                else:
-                    print("⚠️ Configuration cancelled. Using existing settings.")
-        except ImportError:
-            print("⚠️ Configuration menu not available. Install dependencies:")
-            print("   pip install prompt_toolkit>=3.0.51")
-            if first_run:
-                print("   Continuing with default settings for first run...")
-        except Exception as e:
-            print(f"⚠️ Error with configuration menu: {e}")
-            print("Continuing with default settings...")
-    elif Path(config_file).exists():
-        # Load existing user config if available
-        try:
-            from menu import ConfigMenu
-
-            menu = ConfigMenu(config_file)
-            user_config = menu.load_params()
-            print(f"📋 Loading existing configuration from {config_file}")
-            print("✅ Custom configuration loaded successfully!")
-        except Exception as e:
-            print(f"⚠️ Error loading user config: {e}")
-            print("Using default configuration...")
-
-    # Apply user configuration to environment and initialize libraries
-    _apply_user_configuration(user_config)
-
-    # Apply configuration to config module for backwards compatibility
-    if user_config:
-        for key, value in user_config.items():
-            if hasattr(config, key):
-                setattr(config, key, value)
-    config.validate_config()
-
-    # Initialize global instances after configuration is applied
     _initialize_global_instances()
-
     build_index(args.folder)

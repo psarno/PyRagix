@@ -3,56 +3,138 @@
 # Default: tuned for 16GB RAM / 6GB VRAM laptop
 # ======================================
 
-from typing import Set, Literal
+import json
+from pathlib import Path
+from typing import Set, Literal, Dict, Any
 
 # Type definitions
 IndexType = Literal["flat", "ivf_flat", "ivf_pq"]
 
-# CPU / Threading
-TORCH_NUM_THREADS: int = 4
-OPENBLAS_NUM_THREADS: int = 4
-MKL_NUM_THREADS: int = 4
-OMP_NUM_THREADS: int = 4
-NUMEXPR_MAX_THREADS: int = 4
+# Default configuration values
+_DEFAULT_CONFIG = {
+    # CPU / Threading
+    "TORCH_NUM_THREADS": 6,
+    "OPENBLAS_NUM_THREADS": 6,
+    "MKL_NUM_THREADS": 6,
+    "OMP_NUM_THREADS": 6,
+    "NUMEXPR_MAX_THREADS": 6,
+    
+    # GPU / CUDA
+    "CUDA_VISIBLE_DEVICES": "0",  # single GPU
+    "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:1024,garbage_collection_threshold:0.9",
+    
+    # Sentence-Transformers
+    "BATCH_SIZE": 16,
+    
+    # FAISS
+    "INDEX_TYPE": "flat",  # "ivf_flat", "ivf_pq", or "flat"
+    "NLIST": 1024,
+    "NPROBE": 16,
+    
+    # Files to skip during processing (by filename)
+    "SKIP_FILES": [],
+    
+    # PDF Processing settings
+    "BASE_DPI": 150,  # Base DPI for PDF page rendering
+    "BATCH_SIZE_RETRY_DIVISOR": 4,  # Divisor for reducing batch size on memory errors
+    
+    # File paths and logging
+    "INGESTION_LOG_FILE": "ingestion.log",
+    "CRASH_LOG_FILE": "crash_log.txt",
+    
+    # RAG/Query settings
+    "OLLAMA_BASE_URL": "http://localhost:11434",
+    "OLLAMA_MODEL": "llama3.1:8b-instruct-q4_0",
+    "DEFAULT_TOP_K": 7,
+    "REQUEST_TIMEOUT": 60,
+    "TEMPERATURE": 0.1,
+    "TOP_P": 0.9,
+    "MAX_TOKENS": 500,
+}
 
-# GPU / CUDA
-CUDA_VISIBLE_DEVICES: str = "0"  # single GPU
-PYTORCH_CUDA_ALLOC_CONF: str = "max_split_size_mb:1024,garbage_collection_threshold:0.9"
+# Settings file path
+SETTINGS_FILE = "settings.json"
 
-# Sentence-Transformers
-BATCH_SIZE: int = 16
 
-# FAISS
+def _load_settings() -> Dict[str, Any]:
+    """Load settings from JSON file, creating it with defaults if it doesn't exist.
+    
+    Returns:
+        Dict[str, Any]: Configuration settings
+    """
+    settings_path = Path(SETTINGS_FILE)
+    
+    if settings_path.exists():
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                user_settings = json.load(f)
+            
+            # Convert SKIP_FILES list to set if present
+            if "SKIP_FILES" in user_settings:
+                user_settings["SKIP_FILES"] = set(user_settings["SKIP_FILES"])
+            
+            return user_settings
+            
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"Warning: Could not load {SETTINGS_FILE}: {e}")
+            print("Using default settings. Please check your settings file.")
+            # Return defaults but don't overwrite the existing file
+            defaults = _DEFAULT_CONFIG.copy()
+            defaults["SKIP_FILES"] = set(defaults["SKIP_FILES"])
+            return defaults
+    else:
+        # File doesn't exist - create it with defaults
+        _create_default_settings()
+        defaults = _DEFAULT_CONFIG.copy()
+        defaults["SKIP_FILES"] = set(defaults["SKIP_FILES"])
+        return defaults
 
-# Under ~50k–100k chunks
-INDEX_TYPE: IndexType = "flat"  # "ivf_flat", "ivf_pq", or "flat"
-NLIST: int = 1024
-NPROBE: int = 16
 
-# If currently beyond 100k chunks, use:
-# INDEX_TYPE = "ivf_flat"
-# NLIST = 1024
-# NPROBE = 16
+def _create_default_settings() -> None:
+    """Create settings.json file with default values."""
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(_DEFAULT_CONFIG, f, indent=4)
+        print(f"Created {SETTINGS_FILE} with default settings.")
+        print("You can edit this file to customize your configuration.")
+    except OSError as e:
+        print(f"Warning: Could not create {SETTINGS_FILE}: {e}")
 
-# Files to skip during processing (by filename)
-SKIP_FILES: Set[str] = set()
 
-# PDF Processing settings
-BASE_DPI: int = 150  # Base DPI for PDF page rendering
-BATCH_SIZE_RETRY_DIVISOR: int = 4  # Divisor for reducing batch size on memory errors
+# Load settings and create module-level variables
+_settings = _load_settings()
 
-# File paths and logging
-INGESTION_LOG_FILE: str = "ingestion.log"
-CRASH_LOG_FILE: str = "crash_log.txt"
+# Export all configuration variables at module level
+TORCH_NUM_THREADS: int = _settings["TORCH_NUM_THREADS"]
+OPENBLAS_NUM_THREADS: int = _settings["OPENBLAS_NUM_THREADS"]
+MKL_NUM_THREADS: int = _settings["MKL_NUM_THREADS"]
+OMP_NUM_THREADS: int = _settings["OMP_NUM_THREADS"]
+NUMEXPR_MAX_THREADS: int = _settings["NUMEXPR_MAX_THREADS"]
 
-# RAG/Query settings
-OLLAMA_BASE_URL: str = "http://localhost:11434"
-OLLAMA_MODEL: str = "llama3.1:8b-instruct-q4_0"
-DEFAULT_TOP_K: int = 7
-REQUEST_TIMEOUT: int = 60
-TEMPERATURE: float = 0.1
-TOP_P: float = 0.9
-MAX_TOKENS: int = 500
+CUDA_VISIBLE_DEVICES: str = _settings["CUDA_VISIBLE_DEVICES"]
+PYTORCH_CUDA_ALLOC_CONF: str = _settings["PYTORCH_CUDA_ALLOC_CONF"]
+
+BATCH_SIZE: int = _settings["BATCH_SIZE"]
+
+INDEX_TYPE: IndexType = _settings["INDEX_TYPE"]
+NLIST: int = _settings["NLIST"]
+NPROBE: int = _settings["NPROBE"]
+
+SKIP_FILES: Set[str] = _settings["SKIP_FILES"]
+
+BASE_DPI: int = _settings["BASE_DPI"]
+BATCH_SIZE_RETRY_DIVISOR: int = _settings["BATCH_SIZE_RETRY_DIVISOR"]
+
+INGESTION_LOG_FILE: str = _settings["INGESTION_LOG_FILE"]
+CRASH_LOG_FILE: str = _settings["CRASH_LOG_FILE"]
+
+OLLAMA_BASE_URL: str = _settings["OLLAMA_BASE_URL"]
+OLLAMA_MODEL: str = _settings["OLLAMA_MODEL"]
+DEFAULT_TOP_K: int = _settings["DEFAULT_TOP_K"]
+REQUEST_TIMEOUT: int = _settings["REQUEST_TIMEOUT"]
+TEMPERATURE: float = _settings["TEMPERATURE"]
+TOP_P: float = _settings["TOP_P"]
+MAX_TOKENS: int = _settings["MAX_TOKENS"]
 
 
 def validate_config() -> None:

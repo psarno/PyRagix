@@ -33,4 +33,4 @@ local_faiss.index
 processed_files.txt
 ingestion.log
 crash_log.txt
-user_config.json
+settings.json
