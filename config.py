@@ -31,6 +31,11 @@ _DEFAULT_CONFIG = {
     "NLIST": 1024,
     "NPROBE": 16,
     
+    # GPU FAISS settings
+    "GPU_ENABLED": False,  # Enable GPU acceleration for FAISS
+    "GPU_DEVICE": 0,  # GPU device ID
+    "GPU_MEMORY_FRACTION": 0.8,  # Fraction of GPU memory to use
+    
     # Files to skip during processing (by filename)
     "SKIP_FILES": [],
     
@@ -120,6 +125,11 @@ INDEX_TYPE: IndexType = _settings["INDEX_TYPE"]
 NLIST: int = _settings["NLIST"]
 NPROBE: int = _settings["NPROBE"]
 
+# GPU Settings
+GPU_ENABLED: bool = _settings.get("GPU_ENABLED", False)
+GPU_DEVICE: int = _settings.get("GPU_DEVICE", 0)
+GPU_MEMORY_FRACTION: float = _settings.get("GPU_MEMORY_FRACTION", 0.8)
+
 SKIP_FILES: Set[str] = _settings["SKIP_FILES"]
 
 BASE_DPI: int = _settings["BASE_DPI"]
@@ -187,7 +197,7 @@ def validate_config() -> None:
             )
 
     # Index type validation
-    valid_index_types = {"flat", "ivf_flat", "ivf_pq"}
+    valid_index_types = {"flat", "ivf", "ivf_flat", "ivf_pq"}
     if INDEX_TYPE not in valid_index_types:
         raise ValueError(
             f"INDEX_TYPE must be one of {valid_index_types}, got: {INDEX_TYPE}"
@@ -196,6 +206,16 @@ def validate_config() -> None:
     # Skip files validation
     if not isinstance(SKIP_FILES, set):
         raise ValueError("SKIP_FILES must be a set")
+        
+    # GPU settings validation
+    if not isinstance(GPU_ENABLED, bool):
+        raise ValueError("GPU_ENABLED must be a boolean")
+        
+    if not isinstance(GPU_DEVICE, int) or GPU_DEVICE < 0:
+        raise ValueError("GPU_DEVICE must be a non-negative integer")
+        
+    if not isinstance(GPU_MEMORY_FRACTION, (int, float)) or not (0.1 <= GPU_MEMORY_FRACTION <= 1.0):
+        raise ValueError("GPU_MEMORY_FRACTION must be between 0.1 and 1.0")
 
 
 # Validate on import

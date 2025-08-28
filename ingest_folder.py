@@ -129,6 +129,8 @@ from classes.OCRProcessor import OCRProcessor
 # Global instances - will be initialized after configuration is loaded
 CONFIG: Optional[ProcessingConfig] = None
 OCR_PROCESSOR: Optional[OCRProcessor] = None
+GPU_RESOURCES: Optional[Any] = None  # faiss.StandardGpuResources if GPU available
+GPU_FUNCTIONS_AVAILABLE: bool = False  # Track if GPU functions exist in faiss module
 
 
 def _apply_user_configuration() -> None:
@@ -175,10 +177,24 @@ def _apply_user_configuration() -> None:
 
 
 def _initialize_global_instances() -> None:
-    """Initialize global CONFIG and OCR_PROCESSOR instances."""
-    global CONFIG, OCR_PROCESSOR
+    """Initialize global CONFIG, OCR_PROCESSOR, and GPU_RESOURCES instances."""
+    global CONFIG, OCR_PROCESSOR, GPU_RESOURCES
     CONFIG = ProcessingConfig()
     OCR_PROCESSOR = OCRProcessor(CONFIG)
+    
+    # Initialize GPU resources if enabled
+    if config.GPU_ENABLED:
+        gpu_available, gpu_status = _detect_gpu_faiss()
+        logger.info(f"🎮 GPU detection: {gpu_status}")
+        
+        if gpu_available:
+            GPU_RESOURCES = _create_gpu_resources()
+            if GPU_RESOURCES is None:
+                logger.warning("⚠️  GPU requested but initialization failed, using CPU")
+        else:
+            logger.info("💻 GPU FAISS not available, using CPU")
+    else:
+        logger.info("💻 GPU disabled, using CPU FAISS")
 
 
 @contextmanager
@@ -199,6 +215,181 @@ def _cleanup_memory() -> None:
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def _create_faiss_index(dim: int, index_type: str, nlist: int, gpu_res: Optional[Any] = None) -> Tuple["faiss.Index", str]:
+    """Create FAISS index based on configuration.
+
+    Args:
+        dim: Embedding dimension
+        index_type: 'flat' or 'ivf'
+        nlist: Number of clusters for IVF (ignored for flat)
+        gpu_res: GPU resources for GPU acceleration (optional)
+
+    Returns:
+        tuple: (faiss.Index, actual_type) where actual_type is 'flat' or 'ivf'
+    """
+    # Create CPU index first
+    cpu_index = None
+    actual_type = "flat"
+    
+    if index_type.lower() == "ivf":
+        try:
+            # Create IVF index with inner product similarity
+            quantizer = faiss.IndexFlatIP(dim)
+            cpu_index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_INNER_PRODUCT)
+            actual_type = "ivf"
+            logger.info(f"🔧 Created IVF index: dim={dim}, nlist={nlist}")
+        except Exception as e:
+            logger.error(f"⚠️  Failed to create IVF index: {e}")
+            logger.info("Falling back to flat index...")
+    
+    if cpu_index is None:
+        # Default to flat index (fallback or requested)
+        cpu_index = faiss.IndexFlatIP(dim)
+        actual_type = "flat"
+        logger.info(f"🔧 Created flat index: dim={dim}")
+    
+    # Move to GPU if requested and possible
+    if gpu_res is not None and config.GPU_ENABLED:
+        gpu_index = _move_index_to_gpu(cpu_index, gpu_res)
+        if gpu_index is not None:
+            return gpu_index, actual_type
+        else:
+            logger.info("💻 Continuing with CPU index")
+    
+    return cpu_index, actual_type
+
+
+def _train_ivf_index(index: "faiss.Index", training_data: np.ndarray) -> bool:
+    """Train IVF index with provided embeddings.
+
+    Args:
+        index: IVF index to train
+        training_data: Embeddings for training centroids
+        
+    Returns:
+        bool: True if training succeeded, False if failed
+    """
+    if not hasattr(index, "is_trained") or index.is_trained:
+        logger.debug("Index is already trained or doesn't require training")
+        return True
+        
+    num_vectors = len(training_data)
+    nlist = getattr(index, 'nlist', config.NLIST)
+    
+    # Check if we have enough vectors for clustering
+    min_vectors_needed = nlist * 2  # At least 2 vectors per cluster
+    if num_vectors < min_vectors_needed:
+        logger.warning(f"⚠️  Not enough vectors for IVF training: {num_vectors} < {min_vectors_needed}")
+        logger.info("Falling back to flat index for now...")
+        return False
+        
+    try:
+        logger.info(f"🎯 Training IVF index with {num_vectors} vectors, {nlist} clusters...")
+        with _memory_cleanup():
+            index.train(training_data)  # type: ignore
+        logger.info("✅ IVF index training completed")
+        return True
+    except (RuntimeError, ValueError) as e:
+        logger.error(f"⚠️  IVF training failed: {e}")
+        logger.info("Will retry with accumulated vectors later...")
+        return False
+
+
+def _detect_gpu_faiss() -> Tuple[bool, str]:
+    """Detect if GPU FAISS functions are available and working.
+    
+    Returns:
+        tuple: (is_available, status_message)
+    """
+    global GPU_FUNCTIONS_AVAILABLE
+    
+    # First check if GPU functions exist in the faiss module
+    required_attrs = ['StandardGpuResources', 'index_cpu_to_gpu', 'index_gpu_to_cpu']
+    missing_attrs = [attr for attr in required_attrs if not hasattr(faiss, attr)]
+    
+    if missing_attrs:
+        GPU_FUNCTIONS_AVAILABLE = False
+        return False, f"GPU functions not available in faiss module (missing: {missing_attrs})"
+    
+    # Functions exist, now test if GPU actually works
+    try:
+        gpu_res = getattr(faiss, 'StandardGpuResources')()
+        test_index = faiss.IndexFlatIP(384)  # Common embedding dimension
+        gpu_index = getattr(faiss, 'index_cpu_to_gpu')(gpu_res, config.GPU_DEVICE, test_index)
+        del gpu_index, test_index, gpu_res
+        GPU_FUNCTIONS_AVAILABLE = True
+        return True, f"GPU {config.GPU_DEVICE} available and working"
+    except Exception as e:
+        GPU_FUNCTIONS_AVAILABLE = True  # Functions exist but GPU failed
+        return False, f"GPU functions available but GPU failed: {str(e)[:100]}"
+
+
+def _create_gpu_resources() -> Optional[Any]:
+    """Create GPU resources for FAISS with memory management.
+    
+    Returns:
+        GPU resources object or None if failed
+    """
+    if not config.GPU_ENABLED or not GPU_FUNCTIONS_AVAILABLE:
+        return None
+        
+    try:
+        gpu_res = getattr(faiss, 'StandardGpuResources')()
+        
+        # Set memory fraction if specified
+        if hasattr(gpu_res, 'setTempMemoryFraction'):
+            gpu_res.setTempMemoryFraction(config.GPU_MEMORY_FRACTION)
+            
+        logger.info(f"🎮 GPU resources initialized (device {config.GPU_DEVICE}, memory fraction: {config.GPU_MEMORY_FRACTION})")
+        return gpu_res
+    except Exception as e:
+        logger.error(f"⚠️  Failed to create GPU resources: {e}")
+        return None
+
+
+def _move_index_to_gpu(index: "faiss.Index", gpu_res: Any) -> Optional["faiss.Index"]:
+    """Move CPU index to GPU if possible.
+    
+    Args:
+        index: CPU FAISS index
+        gpu_res: GPU resources
+        
+    Returns:
+        GPU index or None if failed
+    """
+    if not GPU_FUNCTIONS_AVAILABLE:
+        return None
+        
+    try:
+        gpu_index = getattr(faiss, 'index_cpu_to_gpu')(gpu_res, config.GPU_DEVICE, index)
+        logger.info("🎮 Index moved to GPU")
+        return gpu_index
+    except Exception as e:
+        logger.error(f"⚠️  Failed to move index to GPU: {e}")
+        return None
+
+
+def _needs_retraining(index: "faiss.Index", new_vector_count: int) -> bool:
+    """Determine if IVF index needs retraining based on new data volume.
+
+    Args:
+        index: FAISS index to check
+        new_vector_count: Number of new vectors being added
+
+    Returns:
+        bool: True if retraining is recommended
+    """
+    if not hasattr(index, "is_trained") or not hasattr(index, "ntotal"):
+        return False
+
+    # Retrain if adding >20% new vectors to existing index
+    if index.ntotal > 0:
+        growth_ratio = new_vector_count / index.ntotal
+        return growth_ratio > 0.2
+
+    return False
 
 
 def _init_embedder() -> SentenceTransformer:
@@ -590,6 +781,18 @@ def _load_existing_index() -> Tuple[Optional["faiss.Index"], List[Dict[str, Any]
         index = faiss.read_index(str(CONFIG.index_path))
         with open(CONFIG.meta_path, "rb") as f:
             metadata = pickle.load(f)
+
+        # Move to GPU if enabled and available
+        if GPU_RESOURCES is not None and config.GPU_ENABLED:
+            gpu_index = _move_index_to_gpu(index, GPU_RESOURCES)
+            if gpu_index is not None:
+                index = gpu_index
+        
+        # Set nprobe for IVF indices
+        if hasattr(index, "nprobe"):
+            index.nprobe = config.NPROBE  # type: ignore
+            logger.info(f"🎯 Set IVF nprobe to {config.NPROBE}")
+
         print(
             f"   Loaded {index.ntotal} existing chunks from {len(set(m['source'] for m in metadata))} files"
         )
@@ -752,6 +955,10 @@ def _print_summary(
 
     print(f"📝  Index: {CONFIG.index_path}")
     print(f"📝 Metadata: {CONFIG.meta_path}")
+    if config.INDEX_TYPE.lower() == "ivf":
+        print(f"🎯 Index type: IVF (nlist={config.NLIST}, nprobe={config.NPROBE})")
+    else:
+        print(f"🎯 Index type: Flat")
     print("   (Re-run this script after adding new documents.)")
 
 
@@ -781,6 +988,14 @@ def build_index(root_folder: str) -> None:
     print(
         f"📝 Processed log exists: {CONFIG.processed_log.exists() if CONFIG.processed_log else False}"
     )
+    print(f"⚙️ Index type: {config.INDEX_TYPE.upper()}")
+    if config.INDEX_TYPE.lower() == "ivf":
+        print(f"🎯 IVF settings: nlist={config.NLIST}, nprobe={config.NPROBE}")
+    if config.GPU_ENABLED:
+        gpu_status = "Active" if GPU_RESOURCES is not None else "Failed"
+        print(f"🎮 GPU acceleration: {gpu_status} (device {config.GPU_DEVICE})")
+    else:
+        print("💻 GPU acceleration: Disabled")
 
     # Clear existing index if resuming
     if (
@@ -912,20 +1127,82 @@ def _process_file(
     # Initialize FAISS if needed (only happens on very first file)
     if index is None and embs is not None:
         dim = embs.shape[1]
-        index = faiss.IndexFlatIP(dim)
-        print(f"🔧 Created new FAISS index with dimension {dim}")
+        index, actual_type = _create_faiss_index(dim, config.INDEX_TYPE, config.NLIST, GPU_RESOURCES)
+
+        # Train IVF index if needed
+        if actual_type == "ivf":
+            training_success = _train_ivf_index(index, embs)
+            if not training_success:
+                # Fall back to flat index if training failed
+                logger.info("🔄 Creating flat index as fallback...")
+                index, _ = _create_faiss_index(dim, "flat", config.NLIST, GPU_RESOURCES)
+            else:
+                # Set nprobe for search on successful IVF index
+                if hasattr(index, "nprobe"):
+                    index.nprobe = config.NPROBE  # type: ignore
 
     # Add to index (using the previously computed embeddings)
     if index is not None and embs is not None:
-        # Type ignore for FAISS binding issues
-        index.add(embs)  # type: ignore
+        # For IVF indices, check if we need retraining
+        if (
+            config.INDEX_TYPE.lower() == "ivf"
+            and hasattr(index, "is_trained")
+            and index.is_trained
+            and _needs_retraining(index, len(embs))
+        ):
+            logger.info("🔄 Significant data growth detected, retraining IVF index...")
+            # Get all existing vectors + new ones for retraining
+            all_vectors = np.vstack([index.reconstruct_n(0, index.ntotal), embs])  # type: ignore
+
+            # Recreate and retrain index
+            dim = embs.shape[1]
+            new_index, actual_type = _create_faiss_index(dim, config.INDEX_TYPE, config.NLIST, GPU_RESOURCES)
+            
+            if actual_type == "ivf":
+                training_success = _train_ivf_index(new_index, all_vectors)
+                if training_success:
+                    if hasattr(new_index, "nprobe"):
+                        new_index.nprobe = config.NPROBE  # type: ignore
+                    # Add all vectors to new index
+                    new_index.add(all_vectors)  # type: ignore
+                    index = new_index
+                    logger.info("✅ IVF index retraining completed")
+                else:
+                    # Retraining failed, fall back to normal addition
+                    logger.warning("IVF retraining failed, continuing with existing index")
+                    index.add(embs)  # type: ignore
+            else:
+                # Fallback index created, add all vectors
+                new_index.add(all_vectors)  # type: ignore
+                index = new_index
+                logger.info("✅ Switched to flat index with all vectors")
+        else:
+            # Normal vector addition
+            index.add(embs)  # type: ignore
 
     # Add metadata
     for i, ch in enumerate(chunks):
         metadata.append({"source": path, "chunk_index": i, "text": ch})
 
-    # Incremental save
-    faiss.write_index(index, str(CONFIG.index_path))
+    # Incremental save (move GPU index to CPU for saving if needed)
+    save_index = index
+    # Check if this looks like a GPU index (has device attribute with numeric value)
+    if (GPU_FUNCTIONS_AVAILABLE and index is not None and 
+        hasattr(index, 'device')):
+        try:
+            device_val = getattr(index, 'device', -1)
+            is_gpu_index = hasattr(device_val, '__ge__') and device_val >= 0
+        except (AttributeError, TypeError):
+            is_gpu_index = False
+            
+        if is_gpu_index:  # GPU index
+            try:
+                save_index = getattr(faiss, 'index_gpu_to_cpu')(index)
+                logger.debug("Moved GPU index to CPU for saving")
+            except Exception as e:
+                logger.warning(f"Failed to move GPU index to CPU for saving: {e}")
+    
+    faiss.write_index(save_index, str(CONFIG.index_path))
     with open(CONFIG.meta_path, "wb") as f:
         pickle.dump(metadata, f)
 
@@ -942,12 +1219,14 @@ if __name__ == "__main__":
     # Ensure UTF-8 output for cross-platform emoji support
     try:
         # Try to reconfigure stdout to UTF-8 if supported
-        if hasattr(sys.stdout, 'reconfigure') and callable(getattr(sys.stdout, 'reconfigure', None)):
-            sys.stdout.reconfigure(encoding='utf-8', errors='replace')  # type: ignore
+        if hasattr(sys.stdout, "reconfigure") and callable(
+            getattr(sys.stdout, "reconfigure", None)
+        ):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
     except (AttributeError, OSError, Exception):
         # If reconfigure fails, emojis might not display but won't crash
         pass
-        
+
     ap = argparse.ArgumentParser(
         description="Ingest folder -> FAISS (PDF/HTML/Images with OCR fallback)"
     )

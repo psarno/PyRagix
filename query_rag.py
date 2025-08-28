@@ -40,6 +40,7 @@ import config
 # ===============================
 class RAGConfig(TypedDict):
     """Configuration for RAG system."""
+
     embed_model: str
     index_path: Path
     meta_path: Path
@@ -54,6 +55,7 @@ class RAGConfig(TypedDict):
 
 class SearchResult(TypedDict):
     """Single search result from FAISS."""
+
     source: str
     chunk_idx: int
     score: float
@@ -62,8 +64,9 @@ class SearchResult(TypedDict):
 
 class OllamaResponse(Protocol):
     """Protocol for Ollama API response."""
+
     status_code: int
-    
+
     def json(self) -> Dict[str, Any]: ...
 
 
@@ -98,15 +101,16 @@ def _memory_cleanup():
     finally:
         # Force garbage collection to prevent memory fragmentation
         import gc
+
         gc.collect()
 
 
 def _l2_normalize(mat: np.ndarray) -> np.ndarray:
     """Normalize embeddings using L2 norm.
-    
+
     Args:
         mat: Input embedding matrix of shape (n_samples, n_features)
-        
+
     Returns:
         np.ndarray: L2-normalized embeddings
     """
@@ -115,17 +119,15 @@ def _l2_normalize(mat: np.ndarray) -> np.ndarray:
 
 
 def _generate_answer_with_ollama(
-    query: str, 
-    context_chunks: List[str], 
-    config: RAGConfig
+    query: str, context_chunks: List[str], config: RAGConfig
 ) -> str:
     """Generate a human-like answer using Ollama based on retrieved context.
-    
+
     Args:
         query: User's question
         context_chunks: List of relevant text chunks from vector search
         config: RAG configuration containing Ollama settings
-        
+
     Returns:
         str: Generated answer or error message
     """
@@ -186,15 +188,17 @@ Response:"""
         return f"WARNING: Unexpected error generating answer: {str(e)}"
 
 
-def _load_rag_system(config: RAGConfig) -> Tuple[faiss.Index, List[Dict[str, Any]], SentenceTransformer]:
+def _load_rag_system(
+    config: RAGConfig,
+) -> Tuple[faiss.Index, List[Dict[str, Any]], SentenceTransformer]:
     """Load the FAISS index and metadata.
-    
+
     Args:
         config: RAG configuration
-        
+
     Returns:
         tuple: (FAISS index, metadata list, embedder model)
-        
+
     Raises:
         FileNotFoundError: If index or metadata files don't exist
         Exception: If loading fails
@@ -211,6 +215,13 @@ def _load_rag_system(config: RAGConfig) -> Tuple[faiss.Index, List[Dict[str, Any
         # Load FAISS index
         index = faiss.read_index(str(config["index_path"]))
 
+        # Configure IVF index if applicable
+        if hasattr(index, "nprobe"):
+            # This is an IVF index, set nprobe for search
+            nprobe = getattr(config, "NPROBE", 16)  # Default to 16 if not set
+            index.nprobe = nprobe  # type: ignore
+            print(f"Set IVF nprobe to {nprobe}")
+
         # Load metadata
         with open(config["meta_path"], "rb") as f:
             metadata = pickle.load(f)
@@ -224,12 +235,21 @@ def _load_rag_system(config: RAGConfig) -> Tuple[faiss.Index, List[Dict[str, Any
                 f"Index/metadata mismatch: {index.ntotal} vectors vs {len(metadata)} metadata entries"
             )
 
-        unique_sources = len(set(m['source'] for m in metadata))
-        print(
-            f"Loaded {index.ntotal} chunks from {unique_sources} files"
-        )
-        return index, metadata, embedder
+        unique_sources = len(set(m["source"] for m in metadata))
+        index_type = "IVF" if hasattr(index, "nprobe") else "Flat"
+        device_info = "GPU" if hasattr(index, "device") and getattr(index, "device", -1) >= 0 else "CPU"
         
+        if index_type == "IVF":
+            nprobe = getattr(index, "nprobe", "unknown")
+            print(
+                f"Loaded {index.ntotal} chunks from {unique_sources} files (IVF index on {device_info}, nprobe={nprobe})"
+            )
+        else:
+            print(
+                f"Loaded {index.ntotal} chunks from {unique_sources} files (Flat index on {device_info})"
+            )
+        return index, metadata, embedder
+
     except Exception as e:
         raise Exception(f"Failed to load RAG system: {str(e)}") from e
 
@@ -245,7 +265,7 @@ def _query_rag(
     debug: bool = True,
 ) -> Optional[str]:
     """Query the RAG system and generate a human-like answer.
-    
+
     Args:
         query: User's question
         index: FAISS vector index
@@ -255,17 +275,17 @@ def _query_rag(
         top_k: Number of top results to retrieve
         show_sources: Whether to display source information
         debug: Whether to show debug information
-        
+
     Returns:
         str: Generated answer, or None if no relevant documents found
     """
     if not query.strip():
         print("⚠️ Empty query provided")
         return None
-        
+
     if top_k is None:
         top_k = config["default_top_k"]
-        
+
     print(f"\nQuery: {query}")
 
     try:
@@ -291,7 +311,7 @@ def _query_rag(
         for score, idx in zip(scores[0], indices[0]):
             if idx == -1:  # FAISS returns -1 for missing results
                 continue
-                
+
             if idx >= len(metadata):
                 print(f"⚠️ Invalid index {idx} (metadata has {len(metadata)} entries)")
                 continue
@@ -302,12 +322,14 @@ def _query_rag(
             text = meta["text"]
 
             context_chunks.append(text)
-            sources_info.append({
-                "source": source,
-                "chunk_idx": chunk_idx,
-                "score": float(score),
-                "text": text
-            })
+            sources_info.append(
+                {
+                    "source": source,
+                    "chunk_idx": chunk_idx,
+                    "score": float(score),
+                    "text": text,
+                }
+            )
 
         if not context_chunks:
             print("\nNo relevant documents found.")
@@ -338,9 +360,9 @@ def _query_rag(
                     f"{i+1}. {source_path.name} (chunk {info['chunk_idx']}, score: {info['score']:.3f})"
                 )
             print("-" * 60)
-            
+
         return answer
-        
+
     except Exception as e:
         print(f"❌ Error during query processing: {type(e).__name__}: {str(e)}")
         if debug:
@@ -350,28 +372,33 @@ def _query_rag(
 
 def _validate_config(config: RAGConfig) -> None:
     """Validate RAG configuration.
-    
+
     Args:
         config: Configuration to validate
-        
+
     Raises:
         ValueError: If configuration is invalid
     """
     required_keys = [
-        "embed_model", "index_path", "meta_path", "ollama_base_url",
-        "ollama_model", "default_top_k", "request_timeout"
+        "embed_model",
+        "index_path",
+        "meta_path",
+        "ollama_base_url",
+        "ollama_model",
+        "default_top_k",
+        "request_timeout",
     ]
-    
+
     for key in required_keys:
         if key not in config:
             raise ValueError(f"Missing required config key: {key}")
-            
+
     if config["default_top_k"] <= 0:
         raise ValueError("default_top_k must be positive")
-        
+
     if config["request_timeout"] <= 0:
         raise ValueError("request_timeout must be positive")
-        
+
     # Validate paths are Path objects
     for path_key in ["index_path", "meta_path"]:
         if not isinstance(config[path_key], Path):
@@ -380,13 +407,13 @@ def _validate_config(config: RAGConfig) -> None:
 
 def main(config: Optional[RAGConfig] = None) -> None:
     """Main function to run the RAG query system.
-    
+
     Args:
         config: Optional RAG configuration. Uses defaults if not provided.
     """
     if config is None:
         config = DEFAULT_CONFIG.copy()
-        
+
     try:
         _validate_config(config)
         index, metadata, embedder = _load_rag_system(config)
@@ -409,13 +436,7 @@ def main(config: Optional[RAGConfig] = None) -> None:
                 continue
 
             _query_rag(
-                query, 
-                index, 
-                metadata, 
-                embedder, 
-                config,
-                show_sources=True,
-                debug=True
+                query, index, metadata, embedder, config, show_sources=True, debug=True
             )
 
     except FileNotFoundError as e:

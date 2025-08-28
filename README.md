@@ -16,8 +16,9 @@ RAG.
 
 - **Document Ingestion**: Extract text from HTML, PDF, and images using
   `PaddleOCR` for OCR fallback, `PyMuPDF` for PDFs, and BeautifulSoup for HTML.
-- **Vector Store**: Build a FAISS index (FlatIP by default) with Sentence
-  Transformers embeddings.
+- **Vector Store**: Build a FAISS index with Sentence Transformers embeddings.
+  Supports both Flat and IVF (Inverted File) indexing for optimal performance
+  scaling.
 - **Console Search**: Query your document collection via an interactive
   command-line interface, with Ollama generating human-like answers from
   retrieved contexts.
@@ -28,8 +29,11 @@ RAG.
   collection.
 - **Modular Architecture**: Separate classes for OCR processing and
   configuration management for better code organization and testing.
-- **Extensible**: Ready for future enhancements like a web interface or advanced
-  FAISS indexing (e.g., IVF).
+- **Advanced Indexing**: Configurable FAISS indexing with IVF support for faster
+  search on large datasets, with intelligent fallback for robust operation.
+- **Hybrid CPU/GPU Support**: Automatic detection of GPU FAISS capabilities with
+  graceful fallback to CPU-only operation for universal compatibility.
+- **Extensible**: Ready for future enhancements like a web interface.
 
 ## Project Structure
 
@@ -118,7 +122,8 @@ python ingest_folder.py [path/to/documents]
 
 **Customization**: Edit `settings.json` for hardware tuning (e.g., batch size,
 thread counts, index type). The file is auto-generated on first run with optimal
-defaults for your system.
+defaults for your system. IVF indexing is enabled by default for better
+performance scaling.
 
 **Example**:
 
@@ -127,7 +132,8 @@ python ingest_folder.py ./my_documents
 ```
 
 This scans `./my_documents` and subfolders, extracts text (with OCR fallback for
-images/scans), chunks it, embeds with `all-MiniLM-L6-v2`, and adds to FAISS.
+images/scans), chunks it, embeds with `all-MiniLM-L6-v2`, and adds to a FAISS
+IVF index optimized for fast retrieval.
 
 ### Step 2: Search Documents
 
@@ -175,8 +181,46 @@ Sources:
   adjusts memory settings based on available system RAM.
 - **query_rag.py**: Ollama API settings loaded from `settings.json` via
   `config.py`.
-- For larger setups: Increase batch sizes in `settings.json`, use IVF indexing,
-  or enable GPU FAISS.
+
+### FAISS Index Types
+
+PyRagix supports two FAISS index types via the `INDEX_TYPE` setting:
+
+- **"ivf"** (default): IVF (Inverted File) indexing for faster searches on large
+  datasets. Configurable via `NLIST` (clusters, default: 1024) and `NPROBE`
+  (search clusters, default: 16). Recommended for >10k documents.
+- **"flat"**: Flat indexing for exhaustive search. Slower but more accurate.
+  Recommended for smaller datasets or when maximum precision is required.
+
+Optimal settings for modest hardware (16GB RAM, 6GB VRAM):
+
+```json
+{
+  "INDEX_TYPE": "ivf",
+  "NLIST": 1024,
+  "NPROBE": 16
+}
+```
+
+### GPU Acceleration
+
+PyRagix includes intelligent GPU detection and hybrid CPU/GPU support:
+
+- **Automatic Detection**: Detects if GPU FAISS functions are available
+- **Graceful Fallback**: Uses CPU when GPU unavailable (default behavior)
+- **Configurable**: Enable GPU acceleration via `settings.json`:
+
+```json
+{
+  "GPU_ENABLED": true,
+  "GPU_DEVICE": 0,
+  "GPU_MEMORY_FRACTION": 0.8
+}
+```
+
+**Note**: GPU FAISS requires compatible hardware and special installation. The system works perfectly with CPU-only FAISS (default) and will automatically utilize GPU capabilities when available.
+
+For larger setups: Increase `NLIST` (more clusters) and `NPROBE` values.
 
 ## Requirements
 
@@ -184,7 +228,7 @@ PyRagix depends on a robust set of Python libraries for AI, document processing,
 and vector search. Key dependencies include:
 
 - `torch` and `transformers`/`sentence-transformers` for embedding models
-- `faiss-cpu` for vector storage and search
+- `faiss-cpu` for vector storage and search (with optional GPU support detection)
 - `paddleocr` and `paddlepaddle` for OCR operations
 - `fitz` (PyMuPDF) for PDF processing
 - `beautifulsoup4` (with optional `lxml`) for HTML parsing
