@@ -73,7 +73,7 @@ class OllamaResponse(Protocol):
 # ===============================
 # Configuration
 # ===============================
-VERSION = "0.0.4"
+from __version__ import __version__
 
 # Default configuration - uses config.py for machine-specific settings
 DEFAULT_CONFIG: RAGConfig = {
@@ -418,7 +418,7 @@ def main(config: Optional[RAGConfig] = None) -> None:
         _validate_config(config)
         index, metadata, embedder = _load_rag_system(config)
 
-        print(f"\nRAG Query System Ready! (Version {VERSION})")
+        print(f"\nRAG Query System Ready! (Version {__version__})")
         print("Type your questions (or 'quit' to exit)")
 
         while True:

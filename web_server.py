@@ -27,6 +27,7 @@ import uvicorn
 # ===============================
 # Local Imports
 # ===============================
+from __version__ import __version__
 from query_rag import (
     _load_rag_system,
     _query_rag,
@@ -119,7 +120,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="RAG Query API",
     description="REST API for Retrieval-Augmented Generation queries",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan
 )
 
@@ -158,7 +159,7 @@ async def health_check():
     if not rag_system["loaded"]:
         return HealthResponse(
             status="error",
-            version="0.1.0",
+            version=__version__,
             rag_loaded=False,
             total_documents=0,
             index_type="none"
@@ -171,7 +172,7 @@ async def health_check():
     
     return HealthResponse(
         status="healthy",
-        version="0.1.0", 
+        version=__version__, 
         rag_loaded=True,
         total_documents=len(metadata),
         index_type=index_type
