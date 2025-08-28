@@ -1,23 +1,21 @@
 # PyRagix
 
-**Pronounced "Pie-Rajicks"** — A clean, typed, Pythonic pipeline for
-Retrieval-Augmented Generation (RAG). Ingest HTML, PDF, and image-based
-documents, build a FAISS vector store, and search with ease using Ollama for
-answer generation. Designed for developers learning RAG, vector search, and
-document processing in Python.
+A clean, typed, Pythonic pipeline for Retrieval-Augmented Generation (RAG).
+Ingest HTML, PDF, and image-based documents, build a FAISS vector store, and
+search with ease using Ollama for answer generation. Designed for developers
+learning RAG, vector search, and document processing in Python.
 
 PyRagix is a lightweight, educational project to help you explore how to process
 diverse documents (HTML, PDF, images) and enable intelligent search using modern
-AI tools. It’s tuned for modest hardware (e.g., 16GB RAM / 6GB VRAM laptop) with
-memory optimizations, but can be customized via `config.py`. It’s not a
-production-grade unicorn—just a practical, well-structured example for
-Pythonistas diving into RAG.
+AI tools. It's tuned for modest hardware (e.g., 16GB RAM / 6GB VRAM) with memory
+optimizations, but can be customized via `settings.json`. This project is meant
+to be a practical, well-structured example for Python developers diving into
+RAG.
 
 ## Features
 
 - **Document Ingestion**: Extract text from HTML, PDF, and images using
-  `paddleocr` for OCR fallback, `pdfplumber`/`PyMuPDF` for PDFs, and
-  BeautifulSoup for HTML.
+  `PaddleOCR` for OCR fallback, `PyMuPDF` for PDFs, and BeautifulSoup for HTML.
 - **Vector Store**: Build a FAISS index (FlatIP by default) with Sentence
   Transformers embeddings.
 - **Console Search**: Query your document collection via an interactive
@@ -25,10 +23,33 @@ Pythonistas diving into RAG.
   retrieved contexts.
 - **Pythonic Design**: Clean, typed, idiomatic Python code with protocols,
   context managers, and memory cleanup for clarity and maintainability.
-- **Memory Optimizations**: Tiled OCR for large pages, batch embedding, GPU/CPU
-  thread capping, and automatic garbage collection.
+- **Memory Optimizations**: Adaptive memory settings based on system RAM, tiled
+  OCR for large pages, batch embedding with retry logic, and automatic garbage
+  collection.
+- **Modular Architecture**: Separate classes for OCR processing and
+  configuration management for better code organization and testing.
 - **Extensible**: Ready for future enhancements like a web interface or advanced
   FAISS indexing (e.g., IVF).
+
+## Project Structure
+
+```
+PyRagix/
+├── ingest_folder.py        # Main ingestion script
+├── query_rag.py           # RAG query interface
+├── config.py              # Configuration loader and validation
+├── settings.json          # User configuration file (auto-generated)
+├── classes/
+│   ├── ProcessingConfig.py # Data class for processing configuration
+│   └── OCRProcessor.py     # OCR operations handler
+├── requirements.in         # Package dependencies (source)
+├── requirements.txt        # Compiled dependencies
+├── local_faiss.index      # Generated FAISS vector index
+├── documents.pkl          # Document metadata
+├── processed_files.txt    # Log of processed files
+├── ingestion.log         # Processing logs
+└── crash_log.txt         # Error logs (when failures occur)
+```
 
 ## Installation
 
@@ -43,7 +64,7 @@ Pythonistas diving into RAG.
 
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate  # On Windows: call venv\Scripts\activate
    ```
 
 3. **Install Dependencies**: PyRagix uses a `requirements.in` file for
@@ -95,8 +116,9 @@ python ingest_folder.py [path/to/documents]
   and `crash_log.txt` (errors if any).
 - Resumes from existing index if available; skips already processed files.
 
-**Customization**: Edit `config.py` for hardware tuning (e.g., batch size,
-thread counts, index type).
+**Customization**: Edit `settings.json` for hardware tuning (e.g., batch size,
+thread counts, index type). The file is auto-generated on first run with optimal
+defaults for your system.
 
 **Example**:
 
@@ -146,12 +168,15 @@ Sources:
 
 ## Configuration
 
-- **config.py**: Tune for your hardware (e.g., thread limits, batch size, CUDA
-  settings, FAISS index type).
-- **query_rag.py**: Adjust Ollama API URL, model, or default top-K in
-  `DEFAULT_CONFIG`.
-- For larger setups: Increase batch sizes, use IVF indexing, or enable GPU
-  FAISS.
+- **settings.json**: Main configuration file for hardware tuning (e.g., thread
+  limits, batch size, CUDA settings, FAISS index type). Auto-generated with
+  system-appropriate defaults.
+- **classes/ProcessingConfig.py**: Adaptive configuration that automatically
+  adjusts memory settings based on available system RAM.
+- **query_rag.py**: Ollama API settings loaded from `settings.json` via
+  `config.py`.
+- For larger setups: Increase batch sizes in `settings.json`, use IVF indexing,
+  or enable GPU FAISS.
 
 ## Requirements
 
@@ -160,13 +185,15 @@ and vector search. Key dependencies include:
 
 - `torch` and `transformers`/`sentence-transformers` for embedding models
 - `faiss-cpu` for vector storage and search
-- `paddleocr` and `paddlepaddle` for OCR
-- `fitz` (PyMuPDF) and `pdfplumber` for PDF processing
-- `beautifulsoup4` for HTML parsing
+- `paddleocr` and `paddlepaddle` for OCR operations
+- `fitz` (PyMuPDF) for PDF processing
+- `beautifulsoup4` (with optional `lxml`) for HTML parsing
 - `requests` for Ollama API calls
+- `psutil` for system memory detection
 
-See [requirements.in](requirements.in) for the full list. Ensure your system has
-sufficient resources for large models (e.g., `paddlepaddle` and `torch`).
+See [requirements.in](requirements.in) for the complete dependency list and
+`requirements.txt` for pinned versions. The system automatically adapts memory
+settings based on available RAM (16GB+ recommended for optimal performance).
 
 ## Contributing
 
