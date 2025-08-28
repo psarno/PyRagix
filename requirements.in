@@ -8,60 +8,21 @@ tokenizers>=0.21.0
 # Vector database and search
 faiss-cpu>=1.8.0
 
-# LangChain ecosystem
-langchain>=0.3.0
-langchain-community>=0.3.0
-langchain-openai>=0.3.0
-langchain-text-splitters>=0.3.0
-
 # OCR and document processing
 paddleocr>=2.8.0
 paddlepaddle>=2.6.0
-paddlex>=3.1.0
-pytesseract>=0.3.10
-pdf2docx>=0.5.8
-pdfplumber>=0.11.0
-python-docx>=1.2.0
-
-# Computer vision
-opencv-python>=4.8.0
 pillow>=10.0.0
-imageio>=2.30.0
-
-# Text processing and NLP
-nltk>=3.8.0
-sentencepiece>=0.2.0
-ftfy>=6.0.0
-python-bidi>=0.6.0
 
 # Data handling
-pandas>=2.0.0
 numpy>=1.24.0
-openpyxl>=3.1.0
 
-# HTTP and web
+# HTTP requests
 requests>=2.31.0
-aiohttp>=3.9.0
-httpx>=0.25.0
 
-# Utilities
-einops>=0.7.0
-tqdm>=4.65.0
-pydantic>=2.5.0
-python-dotenv>=1.0.0
-
-# Email styling
-premailer>=3.10.0
+# HTML parsing (with optional lxml support)
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
 
 # System monitoring
-GPUtil>=1.4.0
+psutil>=5.9.0
 
-# Visualization
-visualdl>=2.5.0
-
-# General utilities
-attrdict>=2.0.0
-imagesize>=1.4.0
-
-#Interactive menus
-prompt_toolkit>=3.0.51
