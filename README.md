@@ -14,6 +14,8 @@ RAG.
 
 ## Features
 
+- **Cross-Platform**: Runs natively on Windows, Linux, and macOS with identical
+  functionality. Uses `pathlib` for universal file handling.
 - **Document Ingestion**: Extract text from HTML, PDF, and images using
   `PaddleOCR` for OCR fallback, `PyMuPDF` for PDFs, and BeautifulSoup for HTML.
 - **Vector Store**: Build a FAISS index with Sentence Transformers embeddings.
@@ -22,6 +24,9 @@ RAG.
 - **Console Search**: Query your document collection via an interactive
   command-line interface, with Ollama generating human-like answers from
   retrieved contexts.
+- **Web Interface**: Modern, responsive web UI for searching documents with
+  real-time status indicators, configurable options, and beautiful results
+  presentation.
 - **Pythonic Design**: Clean, typed, idiomatic Python code with protocols,
   context managers, and memory cleanup for clarity and maintainability.
 - **Memory Optimizations**: Adaptive memory settings based on system RAM, tiled
@@ -33,19 +38,29 @@ RAG.
   search on large datasets, with intelligent fallback for robust operation.
 - **Hybrid CPU/GPU Support**: Automatic detection of GPU FAISS capabilities with
   graceful fallback to CPU-only operation for universal compatibility.
-- **Extensible**: Ready for future enhancements like a web interface.
+- **Modern Web Interface**: Complete TypeScript/FastAPI web application with
+  professional dark theme, real-time search, and responsive design.
 
 ## Project Structure
 
 ```
 PyRagix/
 ├── ingest_folder.py        # Main ingestion script
-├── query_rag.py           # RAG query interface
+├── query_rag.py           # RAG query interface (console)
+├── web_server.py          # FastAPI web server
+├── start_web.bat          # Web interface startup script
 ├── config.py              # Configuration loader and validation
 ├── settings.json          # User configuration file (auto-generated)
 ├── classes/
 │   ├── ProcessingConfig.py # Data class for processing configuration
 │   └── OCRProcessor.py     # OCR operations handler
+├── web/                   # Web interface files
+│   ├── index.html         # Main web interface
+│   ├── style.css          # Modern dark theme styling
+│   ├── script.ts          # TypeScript source (ES2024)
+│   ├── script.js          # Compiled JavaScript
+│   ├── tsconfig.json      # TypeScript configuration
+│   └── dev.bat           # TypeScript development script
 ├── requirements.in         # Package dependencies (source)
 ├── requirements.txt        # Compiled dependencies
 ├── local_faiss.index      # Generated FAISS vector index
@@ -67,8 +82,13 @@ PyRagix/
 2. **Set Up a Virtual Environment** (recommended):
 
    ```bash
+   # Linux/Mac
    python -m venv venv
-   source venv/bin/activate  # On Windows: call venv\Scripts\activate
+   source venv/bin/activate
+   
+   # Windows
+   python -m venv rag-env
+   rag-env\Scripts\activate.bat
    ```
 
 3. **Install Dependencies**: PyRagix uses a `requirements.in` file for
@@ -82,10 +102,10 @@ PyRagix/
    ```
 
    **Note**: The dependency list includes `torch`, `transformers`, `faiss-cpu`,
-   `paddleocr`, `paddlepaddle`, `sentence-transformers`, `fitz` (PyMuPDF), and
-   others. Ensure you have sufficient disk space and a compatible Python version
-   (3.8+ recommended). For GPU acceleration, install CUDA-enabled versions where
-   applicable.
+   `paddleocr`, `paddlepaddle`, `sentence-transformers`, `fitz` (PyMuPDF),
+   `fastapi`, `uvicorn`, and others. Ensure you have sufficient disk space and a
+   compatible Python version (3.8+ recommended). For GPU acceleration, install
+   CUDA-enabled versions where applicable.
 
 4. **Ollama Setup** (for Querying):
 
@@ -97,12 +117,12 @@ PyRagix/
 
 ## Usage
 
-PyRagix consists of two main scripts:
+PyRagix provides both console and web interfaces for document search:
 
 - `ingest_folder.py`: Processes a folder of documents (HTML, PDF, images) and
   builds a FAISS vector store.
-- `query_rag.py`: Runs an interactive console-based search interface to query
-  the vector store and generate answers with Ollama.
+- `query_rag.py`: Interactive console-based search interface.
+- `web_server.py`: Modern web interface with REST API backend.
 
 ### Step 1: Ingest Documents
 
@@ -137,6 +157,35 @@ IVF index optimized for fast retrieval.
 
 ### Step 2: Search Documents
 
+PyRagix offers two search interfaces:
+
+#### Option A: Web Interface (Recommended)
+
+Launch the modern web interface:
+
+```bash
+# Windows (using convenience script)
+start_web.bat
+
+# Linux/Mac/Windows (direct command)
+python web_server.py
+```
+
+Then open your browser to:
+- **Web Interface**: http://localhost:8000/web/
+- **API Documentation**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/health
+
+**Web Interface Features:**
+- Modern, responsive dark theme design
+- Real-time server status indicator
+- Configurable search options (results count, sources, debug mode)
+- Beautiful answer presentation with source highlighting
+- TypeScript-powered frontend with ES2024 features
+- REST API backend for integration
+
+#### Option B: Console Interface
+
 Launch the interactive console-based search interface:
 
 ```bash
@@ -166,11 +215,13 @@ Sources:
 ...
 ```
 
-**Notes**:
+**Platform Notes**:
 
-- Ensure Ollama is running before starting `query_rag.py`.
-- Customize Ollama settings (model, temperature, etc.) in `query_rag.py`'s
-  `DEFAULT_CONFIG`.
+- **All platforms**: Core Python functionality is identical across Windows, Linux, and macOS
+- **Windows users**: Convenience `.bat` scripts are provided (`start_web.bat`, `ingest.bat`, `query.bat`)  
+- **Linux/Mac users**: Run Python commands directly or adapt `.bat` scripts to shell scripts
+- **TypeScript development**: Requires `npm install -g typescript` for compilation
+- Ensure Ollama is running before starting queries on any platform
 
 ## Configuration
 
@@ -279,6 +330,7 @@ and vector search. Key dependencies include:
 - `fitz` (PyMuPDF) for PDF processing
 - `beautifulsoup4` (with optional `lxml`) for HTML parsing
 - `requests` for Ollama API calls
+- `fastapi` and `uvicorn` for the web interface and REST API
 - `psutil` for system memory detection
 
 See [requirements.in](requirements.in) for the complete dependency list and

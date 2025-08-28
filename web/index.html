@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyRagix Web Interface</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">
+                    <span class="logo-icon">🔍</span>
+                    PyRagix
+                </h1>
+                <div class="status-indicator" id="statusIndicator">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span class="status-text" id="statusText">Checking...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Search Section -->
+            <section class="search-section">
+                <div class="search-container">
+                    <form class="search-form" id="searchForm">
+                        <div class="search-input-wrapper">
+                            <input 
+                                type="text" 
+                                class="search-input" 
+                                id="searchInput"
+                                placeholder="Ask me anything about your documents..."
+                                required
+                                autocomplete="off"
+                            >
+                            <button type="submit" class="search-button" id="searchButton">
+                                <span class="search-icon">🚀</span>
+                                <span class="search-text">Search</span>
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Search Options -->
+                    <div class="search-options">
+                        <div class="option-group">
+                            <label for="topK" class="option-label">Results:</label>
+                            <select id="topK" class="option-select">
+                                <option value="5">5</option>
+                                <option value="10" selected>10</option>
+                                <option value="15">15</option>
+                                <option value="20">20</option>
+                            </select>
+                        </div>
+                        <div class="option-group">
+                            <label class="option-checkbox">
+                                <input type="checkbox" id="showSources" checked>
+                                <span class="checkmark"></span>
+                                Show sources
+                            </label>
+                        </div>
+                        <div class="option-group">
+                            <label class="option-checkbox">
+                                <input type="checkbox" id="debugMode">
+                                <span class="checkmark"></span>
+                                Debug mode
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section class="results-section" id="resultsSection" style="display: none;">
+                <!-- Query Info -->
+                <div class="query-info" id="queryInfo"></div>
+
+                <!-- Loading Indicator -->
+                <div class="loading" id="loadingIndicator" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <div class="loading-text">Searching your documents...</div>
+                </div>
+
+                <!-- Answer -->
+                <div class="answer-container" id="answerContainer" style="display: none;">
+                    <div class="answer-header">
+                        <h2>Answer</h2>
+                    </div>
+                    <div class="answer-content" id="answerContent"></div>
+                </div>
+
+                <!-- Sources -->
+                <div class="sources-container" id="sourcesContainer" style="display: none;">
+                    <div class="sources-header">
+                        <h3>Sources</h3>
+                    </div>
+                    <div class="sources-list" id="sourcesList"></div>
+                </div>
+
+                <!-- Error Message -->
+                <div class="error-container" id="errorContainer" style="display: none;">
+                    <div class="error-header">
+                        <h3>⚠️ Error</h3>
+                    </div>
+                    <div class="error-content" id="errorContent"></div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <p class="footer-text">
+                    Powered by <strong>PyRagix</strong> • FAISS • Ollama • FastAPI
+                </p>
+                <div class="footer-links">
+                    <a href="/docs" target="_blank" class="footer-link">API Docs</a>
+                    <a href="/health" target="_blank" class="footer-link">Health</a>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>

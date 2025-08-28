@@ -16,8 +16,10 @@ pillow>=10.0.0
 # Data handling
 numpy>=1.24.0
 
-# HTTP requests
+# HTTP requests and web framework
 requests>=2.31.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
 
 # HTML parsing (with optional lxml support)
 beautifulsoup4>=4.12.0

@@ -34,3 +34,7 @@ processed_files.txt
 ingestion.log
 crash_log.txt
 settings.json
+
+# TypeScript compiled output
+web/script.js
+web/script.js.map
