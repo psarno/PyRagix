@@ -1215,7 +1215,8 @@ def _process_file(
 # -----------------------
 # CLI
 # -----------------------
-if __name__ == "__main__":
+def main() -> None:
+    """Main entry point for PyRagix document ingestion."""
     # Ensure UTF-8 output for cross-platform emoji support
     try:
         # Try to reconfigure stdout to UTF-8 if supported
@@ -1255,3 +1256,7 @@ if __name__ == "__main__":
 
     _initialize_global_instances()
     build_index(args.folder)
+
+
+if __name__ == "__main__":
+    main()
