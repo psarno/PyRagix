@@ -222,6 +222,52 @@ PyRagix includes intelligent GPU detection and hybrid CPU/GPU support:
 
 For larger setups: Increase `NLIST` (more clusters) and `NPROBE` values.
 
+## Advanced Configuration
+
+PyRagix provides extensive configuration options in `settings.json` for fine-tuning performance and behavior. Here's a breakdown of the more technical parameters:
+
+### Performance & Threading
+
+- **`TORCH_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `OMP_NUM_THREADS`, `NUMEXPR_MAX_THREADS`**: Control CPU parallelism for different math libraries. Default is 6 threads. Increase for high-core CPUs, decrease for shared systems or to reduce memory usage.
+
+- **`BATCH_SIZE`**: Number of documents processed simultaneously during embedding (default: 16). Larger values use more memory but can be faster. Reduce if you encounter out-of-memory errors.
+
+- **`BATCH_SIZE_RETRY_DIVISOR`**: When batch processing fails due to memory, the batch size is divided by this value (default: 4) and retried. Higher values mean more aggressive fallback.
+
+### CUDA Memory Management
+
+- **`PYTORCH_CUDA_ALLOC_CONF`**: Advanced CUDA memory allocation settings:
+  - `max_split_size_mb:1024`: Maximum size (MB) for memory block splitting. Larger values reduce fragmentation but use more memory.
+  - `garbage_collection_threshold:0.9`: Triggers cleanup when 90% of allocated memory is used. Lower values free memory more aggressively.
+
+### OCR Processing
+
+- **`BASE_DPI`**: Resolution for OCR processing (default: 150). Higher values (200-300) improve text recognition accuracy but increase processing time and memory usage. Lower values (100-120) speed up processing for simple documents.
+
+### Document Processing
+
+- **`SKIP_FILES`**: Array of file patterns to ignore during ingestion (e.g., `["*.tmp", "backup_*"]`). Supports glob patterns.
+
+- **`INGESTION_LOG_FILE`, `CRASH_LOG_FILE`**: Customize log file names for processing events and errors.
+
+### LLM Generation Parameters
+
+- **`TEMPERATURE`**: Controls response creativity (0.0-1.0, default: 0.1). Lower values produce more focused, deterministic answers. Higher values increase creativity but may reduce accuracy.
+
+- **`TOP_P`**: Nucleus sampling parameter (default: 0.9). Controls diversity by only considering tokens comprising the top 90% probability mass. Lower values make responses more focused.
+
+- **`MAX_TOKENS`**: Maximum length of generated answers (default: 500). Increase for longer responses, decrease to save time and tokens.
+
+- **`DEFAULT_TOP_K`**: Number of document chunks retrieved for each query (default: 7). More chunks provide richer context but may include less relevant information.
+
+- **`REQUEST_TIMEOUT`**: Ollama API timeout in seconds (default: 60). Increase for complex queries or slower models.
+
+### Tuning Tips
+
+- **Memory-constrained systems**: Reduce `BATCH_SIZE` to 8 or lower, decrease thread counts to 2-4, and set `BASE_DPI` to 100.
+- **High-performance systems**: Increase thread counts to match CPU cores, raise `BATCH_SIZE` to 32+, and use `BASE_DPI` 200-300 for better OCR.
+- **Better answers**: Increase `DEFAULT_TOP_K` to 10-15, raise `MAX_TOKENS` to 800-1000, and fine-tune `TEMPERATURE` (0.2-0.3 for creative but focused responses).
+
 ## Requirements
 
 PyRagix depends on a robust set of Python libraries for AI, document processing,
