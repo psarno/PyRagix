@@ -60,6 +60,12 @@
 
 # NEVER suggest pip install commands without checking current versions first
 
+# NEVER add lines such as "Generated with Claude Code" to any project files.
+
+# ALWAYS format release notes and documentation without artificial line breaks - use full sentences on single lines for easy copy-paste
+
+# ALWAYS link release note items to specific commit hashes when available - format as "description (commit_hash)"
+
 ---
 
 **Post-major-changes checklist**: Check VS Code Problems panel for Pylance
