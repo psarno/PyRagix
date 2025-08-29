@@ -21,6 +21,11 @@ if %errorlevel% neq 0 (
 )
 
 echo.
+echo Setting up GPU environment for Ollama...
+set CUDA_VISIBLE_DEVICES=0
+set OLLAMA_GPU_COMPUTE_CAPABILITY=7.5
+set OLLAMA_NUM_GPU=1
+
 echo Starting RAG Web Server...
 echo Web interface: http://localhost:8000/web/
 echo API docs: http://localhost:8000/docs
