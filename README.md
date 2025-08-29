@@ -110,7 +110,7 @@ PyRagix/
 4. **Ollama Setup** (for Querying):
 
    - Install Ollama: Follow instructions at [ollama.com](https://ollama.com).
-   - Pull the default model: `ollama pull llama3.1:8b-instruct-q4_0`.
+   - Pull the default model: `ollama pull llama3.2:3b-instruct-q4_0`.
    - Start the Ollama server: `ollama serve`.
 
    Customize the Ollama model or URL in `query_rag.py` if needed.

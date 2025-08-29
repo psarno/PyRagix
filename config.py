@@ -18,40 +18,32 @@ _DEFAULT_CONFIG = {
     "MKL_NUM_THREADS": 6,
     "OMP_NUM_THREADS": 6,
     "NUMEXPR_MAX_THREADS": 6,
-    
     # GPU / CUDA
     "CUDA_VISIBLE_DEVICES": "0",  # single GPU
     "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:1024,garbage_collection_threshold:0.9",
-    
     # Sentence-Transformers
     "BATCH_SIZE": 16,
-    
     # FAISS
     "INDEX_TYPE": "flat",  # "ivf_flat", "ivf_pq", or "flat"
     "NLIST": 1024,
     "NPROBE": 16,
-    
     # GPU FAISS settings
     "GPU_ENABLED": False,  # Enable GPU acceleration for FAISS
     "GPU_DEVICE": 0,  # GPU device ID
     "GPU_MEMORY_FRACTION": 0.8,  # Fraction of GPU memory to use
-    
     # Files to skip during processing (by filename)
     "SKIP_FILES": [],
-    
     # PDF Processing settings
     "BASE_DPI": 150,  # Base DPI for PDF page rendering
     "BATCH_SIZE_RETRY_DIVISOR": 4,  # Divisor for reducing batch size on memory errors
-    
     # File paths and logging
     "INGESTION_LOG_FILE": "ingestion.log",
     "CRASH_LOG_FILE": "crash_log.txt",
-    
     # RAG/Query settings
     "OLLAMA_BASE_URL": "http://localhost:11434",
-    "OLLAMA_MODEL": "llama3.1:8b-instruct-q4_0",
-    "DEFAULT_TOP_K": 7,
-    "REQUEST_TIMEOUT": 60,
+    "OLLAMA_MODEL": "llama3.2:3b-instruct-q4_0",
+    "DEFAULT_TOP_K": 3,
+    "REQUEST_TIMEOUT": 90,
     "TEMPERATURE": 0.1,
     "TOP_P": 0.9,
     "MAX_TOKENS": 500,
@@ -63,23 +55,23 @@ SETTINGS_FILE = "settings.json"
 
 def _load_settings() -> Dict[str, Any]:
     """Load settings from JSON file, creating it with defaults if it doesn't exist.
-    
+
     Returns:
         Dict[str, Any]: Configuration settings
     """
     settings_path = Path(SETTINGS_FILE)
-    
+
     if settings_path.exists():
         try:
             with open(settings_path, "r", encoding="utf-8") as f:
                 user_settings = json.load(f)
-            
+
             # Convert SKIP_FILES list to set if present
             if "SKIP_FILES" in user_settings:
                 user_settings["SKIP_FILES"] = set(user_settings["SKIP_FILES"])
-            
+
             return user_settings
-            
+
         except (json.JSONDecodeError, OSError) as e:
             print(f"Warning: Could not load {SETTINGS_FILE}: {e}")
             print("Using default settings. Please check your settings file.")
@@ -206,15 +198,17 @@ def validate_config() -> None:
     # Skip files validation
     if not isinstance(SKIP_FILES, set):
         raise ValueError("SKIP_FILES must be a set")
-        
+
     # GPU settings validation
     if not isinstance(GPU_ENABLED, bool):
         raise ValueError("GPU_ENABLED must be a boolean")
-        
+
     if not isinstance(GPU_DEVICE, int) or GPU_DEVICE < 0:
         raise ValueError("GPU_DEVICE must be a non-negative integer")
-        
-    if not isinstance(GPU_MEMORY_FRACTION, (int, float)) or not (0.1 <= GPU_MEMORY_FRACTION <= 1.0):
+
+    if not isinstance(GPU_MEMORY_FRACTION, (int, float)) or not (
+        0.1 <= GPU_MEMORY_FRACTION <= 1.0
+    ):
         raise ValueError("GPU_MEMORY_FRACTION must be between 0.1 and 1.0")
 
 
