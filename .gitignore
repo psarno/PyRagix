@@ -26,8 +26,6 @@ dist/
 Thumbs.db
 .DS_Store
 
-# Claude Code files
-.claude/
 
 # Large FAISS vector storage files
 documents.pkl
