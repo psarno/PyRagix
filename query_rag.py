@@ -164,7 +164,7 @@ Response:"""
                 "options": {
                     "temperature": config["temperature"],
                     "top_p": config["top_p"],
-                    "max_tokens": config["max_tokens"],
+                    "num_predict": config["max_tokens"],
                 },
             },
             timeout=config["request_timeout"],
