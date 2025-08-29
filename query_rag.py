@@ -237,8 +237,12 @@ def _load_rag_system(
 
         unique_sources = len(set(m["source"] for m in metadata))
         index_type = "IVF" if hasattr(index, "nprobe") else "Flat"
-        device_info = "GPU" if hasattr(index, "device") and getattr(index, "device", -1) >= 0 else "CPU"
-        
+        device_info = (
+            "GPU"
+            if hasattr(index, "device") and getattr(index, "device", -1) >= 0
+            else "CPU"
+        )
+
         if index_type == "IVF":
             nprobe = getattr(index, "nprobe", "unknown")
             print(
