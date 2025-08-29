@@ -48,7 +48,12 @@ PyRagix/
 ├── ingest_folder.py        # Main ingestion script
 ├── query_rag.py           # RAG query interface (console)
 ├── web_server.py          # FastAPI web server
-├── start_web.bat          # Web interface startup script
+├── start_web.bat          # Web interface startup script (Windows)
+├── start_web.sh           # Web interface startup script (Linux/Mac)
+├── ingest.bat             # Document ingestion script (Windows)
+├── ingest.sh              # Document ingestion script (Linux/Mac)
+├── query.bat              # Query interface script (Windows)
+├── query.sh               # Query interface script (Linux/Mac)
 ├── config.py              # Configuration loader and validation
 ├── settings.json          # User configuration file (auto-generated)
 ├── classes/
@@ -91,13 +96,18 @@ PyRagix/
    rag-env\Scripts\activate.bat
    ```
 
-3. **Install Dependencies**: PyRagix uses a `requirements.in` file for
-   dependency management. Ensure you have `pip` and `pip-tools` installed, then
-   run:
+3. **Install Dependencies**: 
 
    ```bash
-   pip install pip-tools
-   pip-compile requirements.in  # Generates requirements.txt
+   # Most users - install from pinned versions
+   pip install -r requirements.txt
+   ```
+
+   **For developers modifying dependencies**: PyRagix uses `requirements.in` for dependency management. To update dependencies:
+
+   ```bash
+   pip install pip-tools           # Required for pip-compile command
+   pip-compile requirements.in     # Updates requirements.txt
    pip install -r requirements.txt
    ```
 
@@ -129,7 +139,15 @@ PyRagix provides both console and web interfaces for document search:
 Run the ingestion script to process a folder and create a FAISS index:
 
 ```bash
+# Direct Python command (all platforms)
 python ingest_folder.py [path/to/documents]
+
+# Or use convenience scripts:
+# Windows
+ingest.bat [path/to/documents]
+
+# Linux/Mac
+./ingest.sh [path/to/documents]
 ```
 
 - If no folder is provided, it uses the default from `config.py` (e.g.,
@@ -167,7 +185,10 @@ Launch the modern web interface:
 # Windows (using convenience script)
 start_web.bat
 
-# Linux/Mac/Windows (direct command)
+# Linux/Mac (using convenience script)
+./start_web.sh
+
+# Direct Python command (all platforms)
 python web_server.py
 ```
 
@@ -189,7 +210,15 @@ Then open your browser to:
 Launch the interactive console-based search interface:
 
 ```bash
+# Direct Python command (all platforms)
 python query_rag.py
+
+# Or use convenience scripts:
+# Windows
+query.bat
+
+# Linux/Mac
+./query.sh
 ```
 
 - Loads the FAISS index and metadata.
@@ -218,8 +247,9 @@ Sources:
 **Platform Notes**:
 
 - **All platforms**: Core Python functionality is identical across Windows, Linux, and macOS
-- **Windows users**: Convenience `.bat` scripts are provided (`start_web.bat`, `ingest.bat`, `query.bat`)  
-- **Linux/Mac users**: Run Python commands directly or adapt `.bat` scripts to shell scripts
+- **Convenience scripts**: Both `.bat` (Windows) and `.sh` (Linux/Mac) scripts provided for all operations
+- **Windows users**: Use `start_web.bat`, `ingest.bat`, `query.bat` 
+- **Linux/Mac users**: Use `./start_web.sh`, `./ingest.sh`, `./query.sh` (scripts are executable)
 - **TypeScript development**: Requires `npm install -g typescript` for compilation
 - Ensure Ollama is running before starting queries on any platform
 
