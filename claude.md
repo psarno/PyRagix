@@ -26,6 +26,10 @@
 
 # NEVER leave unresolved Pylance static analysis issues
 
+# NEVER accept "it's just a warning" - all static analysis issues must be resolved
+
+# ALWAYS use proper typing (Any, Optional, etc.) rather than leaving warnings
+
 ## CLI Best Practices
 
 ## Dependencies & Versions
