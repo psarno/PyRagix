@@ -49,4 +49,5 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
+py-modules = ["ingest_folder", "query_rag", "web_server", "config"]
 packages = ["classes"]
