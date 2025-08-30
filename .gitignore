@@ -27,9 +27,9 @@ Thumbs.db
 .DS_Store
 
 
-# Large FAISS vector storage files
-documents.pkl
+# FAISS vector storage files
 local_faiss.index
+documents.db
 
 # Misc project files (logging, user config, etc.)
 processed_files.txt

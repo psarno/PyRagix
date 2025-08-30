@@ -22,7 +22,7 @@ class ProcessingConfig:
 
     # File paths
     index_path: Path = field(default_factory=lambda: Path("local_faiss.index"))
-    meta_path: Path = field(default_factory=lambda: Path("documents.pkl"))
+    db_path: Path = field(default_factory=lambda: Path("documents.db"))
     processed_log: Path = field(default_factory=lambda: Path("processed_files.txt"))
     # Processing behavior
     top_print_every: int = 5  # print every N files

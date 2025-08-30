@@ -8,7 +8,7 @@
 # ===============================
 # Standard Library
 # ===============================
-import pickle
+import sqlite_utils
 import sys
 import traceback
 from pathlib import Path
@@ -43,7 +43,7 @@ class RAGConfig(TypedDict):
 
     embed_model: str
     index_path: Path
-    meta_path: Path
+    db_path: Path
     ollama_base_url: str
     ollama_model: str
     default_top_k: int
@@ -79,7 +79,7 @@ from __version__ import __version__
 DEFAULT_CONFIG: RAGConfig = {
     "embed_model": "all-MiniLM-L6-v2",
     "index_path": Path("local_faiss.index"),
-    "meta_path": Path("documents.pkl"),
+    "db_path": Path("documents.db"),
     "ollama_base_url": config.OLLAMA_BASE_URL,
     "ollama_model": config.OLLAMA_MODEL,
     "default_top_k": config.DEFAULT_TOP_K,
@@ -208,8 +208,8 @@ def _load_rag_system(
     # Validate files exist
     if not config["index_path"].exists():
         raise FileNotFoundError(f"FAISS index not found: {config['index_path']}")
-    if not config["meta_path"].exists():
-        raise FileNotFoundError(f"Metadata file not found: {config['meta_path']}")
+    if not config["db_path"].exists():
+        raise FileNotFoundError(f"Database file not found: {config['db_path']}")
 
     try:
         # Load FAISS index
@@ -222,9 +222,18 @@ def _load_rag_system(
             index.nprobe = nprobe  # type: ignore
             print(f"Set IVF nprobe to {nprobe}")
 
-        # Load metadata
-        with open(config["meta_path"], "rb") as f:
-            metadata = pickle.load(f)
+        # Load metadata from database
+        db = sqlite_utils.Database(str(config["db_path"]))
+        metadata = []
+        if "chunks" in db.table_names():
+            for row in db["chunks"].rows:
+                metadata.append({
+                    "source": row["source"],
+                    "chunk_index": row["chunk_index"],
+                    "text": row["text"]
+                })
+        else:
+            raise ValueError("Database exists but contains no chunks table")
 
         # Load embedder
         embedder = SentenceTransformer(config["embed_model"])
@@ -386,7 +395,7 @@ def _validate_config(config: RAGConfig) -> None:
     required_keys = [
         "embed_model",
         "index_path",
-        "meta_path",
+        "db_path",
         "ollama_base_url",
         "ollama_model",
         "default_top_k",
@@ -404,7 +413,7 @@ def _validate_config(config: RAGConfig) -> None:
         raise ValueError("request_timeout must be positive")
 
     # Validate paths are Path objects
-    for path_key in ["index_path", "meta_path"]:
+    for path_key in ["index_path", "db_path"]:
         if not isinstance(config[path_key], Path):
             raise ValueError(f"{path_key} must be a Path object")
 

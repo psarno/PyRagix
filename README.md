@@ -69,7 +69,7 @@ PyRagix/
 ├── requirements.in         # Package dependencies (source)
 ├── requirements.txt        # Compiled dependencies
 ├── local_faiss.index      # Generated FAISS vector index
-├── documents.pkl          # Document metadata
+├── documents.db           # Document metadata database
 ├── processed_files.txt    # Log of processed files
 ├── ingestion.log         # Processing logs
 └── crash_log.txt         # Error logs (when failures occur)
@@ -153,7 +153,7 @@ ingest.bat [path/to/documents]
 - If no folder is provided, it uses the default from `config.py` (e.g.,
   `./docs`).
 - Supported formats: PDF, HTML/HTM, images (via OCR).
-- Outputs: `local_faiss.index` (FAISS index), `documents.pkl` (metadata),
+- Outputs: `local_faiss.index` (FAISS index), `documents.db` (metadata database),
   `processed_files.txt` (processed file log), `ingestion.log` (processing log),
   and `crash_log.txt` (errors if any).
 - Resumes from existing index if available; skips already processed files.
@@ -268,10 +268,11 @@ Sources:
 PyRagix supports two FAISS index types via the `INDEX_TYPE` setting:
 
 - **"ivf"** (default): IVF (Inverted File) indexing for faster searches on large
-  datasets. Configurable via `NLIST` (clusters, default: 1024) and `NPROBE`
-  (search clusters, default: 16). Recommended for >10k documents.
+  datasets. Automatically falls back to flat indexing for smaller collections
+  (< ~2048 chunks), then upgrades to IVF as your document collection grows.
+  Configurable via `NLIST` (clusters, default: 1024) and `NPROBE` (search clusters, default: 16).
 - **"flat"**: Flat indexing for exhaustive search. Slower but more accurate.
-  Recommended for smaller datasets or when maximum precision is required.
+  Use this if you want to force flat indexing regardless of collection size.
 
 Optimal settings for modest hardware (16GB RAM, 6GB VRAM):
 
@@ -361,6 +362,7 @@ and vector search. Key dependencies include:
 - `beautifulsoup4` (with optional `lxml`) for HTML parsing
 - `requests` for Ollama API calls
 - `fastapi` and `uvicorn` for the web interface and REST API
+- `sqlite-utils` for metadata database operations
 - `psutil` for system memory detection
 
 See [requirements.in](requirements.in) for the complete dependency list and

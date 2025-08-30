@@ -18,7 +18,7 @@ import argparse
 import logging
 import os
 import sys
-import pickle
+import sqlite_utils
 import traceback
 import math
 import gc
@@ -285,8 +285,8 @@ def _train_ivf_index(index: "faiss.Index", training_data: np.ndarray) -> bool:
     # Check if we have enough vectors for clustering
     min_vectors_needed = nlist * 2  # At least 2 vectors per cluster
     if num_vectors < min_vectors_needed:
-        logger.warning(
-            f"⚠️  Not enough vectors for IVF training: {num_vectors} < {min_vectors_needed}"
+        logger.info(
+            f"ℹ️  Not enough vectors for IVF training: {num_vectors} < {min_vectors_needed}"
         )
         logger.info("Falling back to flat index for now...")
         return False
@@ -791,13 +791,23 @@ def _load_existing_index() -> Tuple[Optional["faiss.Index"], List[Dict[str, Any]
     if (
         CONFIG.index_path
         and CONFIG.index_path.exists()
-        and CONFIG.meta_path
-        and CONFIG.meta_path.exists()
+        and CONFIG.db_path
+        and CONFIG.db_path.exists()
     ):
         print("📂 Loading existing index and metadata...")
         index = faiss.read_index(str(CONFIG.index_path))
-        with open(CONFIG.meta_path, "rb") as f:
-            metadata = pickle.load(f)
+        
+        # Load metadata from SQLite database
+        db: Any = sqlite_utils.Database(str(CONFIG.db_path))
+        metadata = []
+        if "chunks" in db.table_names():
+            chunks_table: Any = db["chunks"]
+            for row in chunks_table.rows:  # type: ignore
+                metadata.append({
+                    "source": row["source"],
+                    "chunk_index": row["chunk_index"],
+                    "text": row["text"]
+                })
 
         # Move to GPU if enabled and available
         if GPU_RESOURCES is not None and config.GPU_ENABLED:
@@ -971,7 +981,7 @@ def _print_summary(
             print(f"   • {reason}: {count}")
 
     print(f"📝  Index: {CONFIG.index_path}")
-    print(f"📝 Metadata: {CONFIG.meta_path}")
+    print(f"📝 Database: {CONFIG.db_path}")
     if config.INDEX_TYPE.lower() == "ivf":
         print(f"🎯 Index type: IVF (nlist={config.NLIST}, nprobe={config.NPROBE})")
     else:
@@ -1024,8 +1034,8 @@ def build_index(root_folder: str) -> None:
         print("ℹ️ Resuming - keeping existing index")
     elif CONFIG.index_path and CONFIG.index_path.exists():
         CONFIG.index_path.unlink()
-        if CONFIG.meta_path:
-            CONFIG.meta_path.unlink()
+        if CONFIG.db_path:
+            CONFIG.db_path.unlink()
         print("ℹ🧹 Cleared existing index for fresh run")
 
     print(f"🔎 Scanning: {root_path}")
@@ -1190,7 +1200,7 @@ def _process_file(
                     logger.info("✅ IVF index retraining completed")
                 else:
                     # Retraining failed, fall back to normal addition
-                    logger.warning(
+                    logger.info(
                         "IVF retraining failed, continuing with existing index"
                     )
                     index.add(embs)  # type: ignore
@@ -1203,9 +1213,44 @@ def _process_file(
             # Normal vector addition
             index.add(embs)  # type: ignore
 
-    # Add metadata
+    # Add metadata to SQLite database and list  
+    db: Any = sqlite_utils.Database(str(CONFIG.db_path))
+    
+    # Ensure chunks table exists with proper schema
+    chunks_table: Any = db["chunks"]
+    if "chunks" not in db.table_names():
+        chunks_table.create({
+            "id": int,
+            "source": str,
+            "chunk_index": int,
+            "text": str,
+            "file_hash": str,  # type: ignore
+            "created_at": str  # type: ignore
+        }, pk="id")  # type: ignore
+        # Create index on source for faster queries
+        chunks_table.create_index(["source"])  # type: ignore
+        chunks_table.create_index(["file_hash"])  # type: ignore
+    
+    # Calculate file hash for better deduplication
+    file_hash = _calculate_file_hash(path)
+    from datetime import datetime
+    created_at = datetime.now().isoformat()
+    
+    # Insert chunks into database and add to metadata list
+    chunk_records = []
     for i, ch in enumerate(chunks):
+        chunk_data = {
+            "source": path,
+            "chunk_index": i,
+            "text": ch,
+            "file_hash": file_hash,
+            "created_at": created_at
+        }
+        chunk_records.append(chunk_data)
         metadata.append({"source": path, "chunk_index": i, "text": ch})
+    
+    # Batch insert for better performance
+    chunks_table.insert_all(chunk_records)  # type: ignore
 
     # Incremental save (move GPU index to CPU for saving if needed)
     save_index = index
@@ -1225,8 +1270,6 @@ def _process_file(
                 logger.warning(f"Failed to move GPU index to CPU for saving: {e}")
 
     faiss.write_index(save_index, str(CONFIG.index_path))
-    with open(CONFIG.meta_path, "wb") as f:
-        pickle.dump(metadata, f)
 
     # Clean up memory after processing each file
     _cleanup_memory()
