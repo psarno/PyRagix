@@ -140,15 +140,19 @@ Run the ingestion script to process a folder and create a FAISS index:
 
 ```bash
 # Direct Python command (all platforms)
-python ingest_folder.py [path/to/documents]
+python ingest_folder.py [options] [path/to/documents]
 
 # Or use convenience scripts:
 # Windows
-ingest.bat [path/to/documents]
+ingest.bat [options] [path/to/documents]
 
 # Linux/Mac
-./ingest.sh [path/to/documents]
+./ingest.sh [options] [path/to/documents]
 ```
+
+**Command Options:**
+- `--fresh`: Start from scratch, clearing existing index and processed files log
+- `--no-recurse`: Only process files in the root folder, skip subdirectories
 
 - If no folder is provided, it uses the default from `config.py` (e.g.,
   `./docs`).
@@ -163,15 +167,23 @@ thread counts, index type). The file is auto-generated on first run with optimal
 defaults for your system. IVF indexing is enabled by default for better
 performance scaling.
 
-**Example**:
+**Examples**:
 
 ```bash
+# Basic usage - process folder and subdirectories (default)
 python ingest_folder.py ./my_documents
+
+# Fresh start - clear existing index and start over
+python ingest_folder.py --fresh ./my_documents
+
+# Process only root folder - skip subdirectories
+python ingest_folder.py --no-recurse ./my_documents
+
+# Fresh start with no subdirectories
+python ingest_folder.py --fresh --no-recurse ./my_documents
 ```
 
-This scans `./my_documents` and subfolders, extracts text (with OCR fallback for
-images/scans), chunks it, embeds with `all-MiniLM-L6-v2`, and adds to a FAISS
-IVF index optimized for fast retrieval.
+These commands scan the specified folder, extract text (with OCR fallback for images/scans), chunk it, embed with `all-MiniLM-L6-v2`, and add to a FAISS IVF index optimized for fast retrieval.
 
 ### Step 2: Search Documents
 

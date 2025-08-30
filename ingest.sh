@@ -12,9 +12,5 @@ if [[ -z "$VIRTUAL_ENV" ]]; then
     fi
 fi
 
-# Run ingestion with optional path argument
-if [[ $# -gt 0 ]]; then
-    python ingest_folder.py "$1"
-else
-    python ingest_folder.py
-fi
+# Run ingestion with all arguments (path, flags, etc.)
+python ingest_folder.py "$@"

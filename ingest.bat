@@ -9,11 +9,7 @@ if exist "rag-env\Scripts\activate.bat" (
     echo Continuing with system Python...
 )
 
-REM Run ingestion with optional path argument
-if "%~1"=="" (
-    python ingest_folder.py
-) else (
-    python ingest_folder.py "%~1"
-)
+REM Run ingestion with all arguments (path, flags, etc.)
+python ingest_folder.py %*
 
 pause

@@ -874,6 +874,7 @@ def _scan_and_process_files(
     index: Optional["faiss.Index"],
     metadata: List[Dict[str, Any]],
     processed: Set[str],
+    recurse_subdirs: bool = True,
 ) -> ProcessingStats:
     """Scan directory and process all supported files."""
     assert CONFIG is not None, "CONFIG must be initialized before use"
@@ -883,7 +884,26 @@ def _scan_and_process_files(
     skipped_problems = 0
     skip_reasons = {}
 
-    for dirpath, _, filenames in os.walk(root_path):
+    if recurse_subdirs:
+        # Recursively walk through all subdirectories
+        walker = os.walk(root_path)
+    else:
+        # Only process files in the root directory
+        try:
+            root_files = [f for f in os.listdir(root_path) if os.path.isfile(os.path.join(root_path, f))]
+            walker = [(str(root_path), [], root_files)]
+        except OSError:
+            print(f"❌ Cannot access directory: {root_path}")
+            return {
+                "index": index,
+                "file_count": 0,
+                "chunk_total": chunk_total,
+                "skipped_already_processed": 0,
+                "skipped_problems": 0,
+                "skip_reasons": {},
+            }
+    
+    for dirpath, _, filenames in walker:
         for fname in filenames:
             path = os.path.join(dirpath, fname)
             ext = os.path.splitext(fname)[1].lower()
@@ -992,8 +1012,14 @@ def _print_summary(
 # -----------------------
 # Main build
 # -----------------------
-def build_index(root_folder: str) -> None:
-    """Main function to build FAISS index from documents in a folder."""
+def build_index(root_folder: str, fresh_start: bool = False, recurse_subdirs: bool = True) -> None:
+    """Main function to build FAISS index from documents in a folder.
+    
+    Args:
+        root_folder: Root directory containing documents to process
+        fresh_start: If True, clears existing index, database, and processed files log
+        recurse_subdirs: If True, processes subdirectories recursively; if False, only root folder
+    """
     assert (
         CONFIG is not None and OCR_PROCESSOR is not None
     ), "Global instances must be initialized before use"
@@ -1024,8 +1050,22 @@ def build_index(root_folder: str) -> None:
     else:
         print("💻 GPU acceleration: Disabled")
 
-    # Clear existing index if resuming
-    if (
+    # Handle fresh start or resume logic
+    if fresh_start:
+        print("🆕 Fresh start requested - clearing all existing files")
+        # Clear index
+        if CONFIG.index_path and CONFIG.index_path.exists():
+            CONFIG.index_path.unlink()
+            print("   Removed existing FAISS index")
+        # Clear database
+        if CONFIG.db_path and CONFIG.db_path.exists():
+            CONFIG.db_path.unlink()
+            print("   Removed existing metadata database")
+        # Clear processed files log
+        if CONFIG.processed_log and CONFIG.processed_log.exists():
+            CONFIG.processed_log.unlink()
+            print("   Removed processed files log")
+    elif (
         CONFIG.processed_log
         and CONFIG.processed_log.exists()
         and CONFIG.index_path
@@ -1049,10 +1089,13 @@ def build_index(root_folder: str) -> None:
     processed = _load_processed_files()
 
     # Scan and process files
-    print("🔄 Starting file scan and processing...")
+    if recurse_subdirs:
+        print("🔄 Starting file scan and processing (including subdirectories)...")
+    else:
+        print("🔄 Starting file scan and processing (root folder only)...")
     try:
         stats = _scan_and_process_files(
-            root_path, ocr, embedder, index, metadata, processed
+            root_path, ocr, embedder, index, metadata, processed, recurse_subdirs
         )
         index = stats["index"]
         file_count = stats["file_count"]
@@ -1302,6 +1345,16 @@ def main() -> None:
         default=".",
         help="Root folder of documents to process (default: current directory)",
     )
+    ap.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Start from scratch, clearing existing index and processed files log",
+    )
+    ap.add_argument(
+        "--no-recurse",
+        action="store_true",
+        help="Only process files in the root folder, skip subdirectories",
+    )
     args = ap.parse_args()
 
     # Clear screen for cleaner experience
@@ -1320,7 +1373,7 @@ def main() -> None:
         print(f"Processing folder: {args.folder}")
 
     _initialize_global_instances()
-    build_index(args.folder)
+    build_index(args.folder, fresh_start=args.fresh, recurse_subdirs=not args.no_recurse)
 
 
 if __name__ == "__main__":
