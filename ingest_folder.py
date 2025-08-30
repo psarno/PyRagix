@@ -1050,6 +1050,12 @@ def build_index(root_folder: str, fresh_start: bool = False, recurse_subdirs: bo
     else:
         print("💻 GPU acceleration: Disabled")
 
+    # Clean up obsolete pickle files (from pre-SQLite versions)
+    pickle_file = root_path / "documents.pkl"
+    if pickle_file.exists():
+        pickle_file.unlink()
+        print("🗑️  Removed obsolete documents.pkl file")
+
     # Handle fresh start or resume logic
     if fresh_start:
         print("🆕 Fresh start requested - clearing all existing files")
