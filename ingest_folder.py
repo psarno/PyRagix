@@ -796,18 +796,20 @@ def _load_existing_index() -> Tuple[Optional["faiss.Index"], List[Dict[str, Any]
     ):
         print("📂 Loading existing index and metadata...")
         index = faiss.read_index(str(CONFIG.index_path))
-        
+
         # Load metadata from SQLite database
         db: Any = sqlite_utils.Database(str(CONFIG.db_path))
         metadata = []
         if "chunks" in db.table_names():
             chunks_table: Any = db["chunks"]
             for row in chunks_table.rows:  # type: ignore
-                metadata.append({
-                    "source": row["source"],
-                    "chunk_index": row["chunk_index"],
-                    "text": row["text"]
-                })
+                metadata.append(
+                    {
+                        "source": row["source"],
+                        "chunk_index": row["chunk_index"],
+                        "text": row["text"],
+                    }
+                )
 
         # Move to GPU if enabled and available
         if GPU_RESOURCES is not None and config.GPU_ENABLED:
@@ -867,6 +869,197 @@ def _load_processed_files() -> Set[str]:
     return processed_hashes
 
 
+def _detect_stale_documents(
+    processed_files: Set[str], current_files: List[Path]
+) -> List[str]:
+    """Detect processed files that no longer exist in the current directory.
+
+    Args:
+        processed_files: Set of file hashes from processed_files.txt
+        current_files: List of current file paths in directory
+
+    Returns:
+        List of file paths that were processed but no longer exist
+    """
+    if not processed_files:
+        return []
+
+    # Build current file hash mapping
+    current_hashes = set()
+    current_paths = {}
+
+    for file_path in current_files:
+        if file_path.is_file():
+            try:
+                file_hash = _calculate_file_hash(str(file_path))
+                current_hashes.add(file_hash)
+                current_paths[file_hash] = str(file_path)
+            except (OSError, PermissionError):
+                continue
+
+    # Find stale entries - hashes in processed but not in current
+    stale_hashes = processed_files - current_hashes
+
+    # Try to map back to file paths from processed_files.txt
+    stale_paths = []
+    if stale_hashes and CONFIG and CONFIG.processed_log:
+        try:
+            with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and "|" in line:
+                        parts = line.split("|", 1)
+                        if len(parts) == 2:
+                            file_hash, file_path = parts[0].strip(), parts[1].strip()
+                            if file_hash in stale_hashes:
+                                stale_paths.append(file_path)
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    return stale_paths
+
+
+def _prompt_user_stale_action(stale_files: List[str]) -> str:
+    """Prompt user for action when stale documents are detected.
+
+    Returns:
+        User choice: 'fresh', 'clean', 'append', or 'quit'
+    """
+    print("\n⚠️  Stale document references detected!")
+    print(f"\nFound {len(stale_files)} processed files that no longer exist:")
+
+    # Show up to 5 files, then "... and X more"
+    display_files = stale_files[:5]
+    for file_path in display_files:
+        print(f"• {file_path}")
+
+    if len(stale_files) > 5:
+        print(f"• (+ {len(stale_files) - 5} more...)")
+
+    print("\nOptions:")
+    print("[F]resh start - Clear all data and reprocess from scratch")
+    print("[C]lean - Remove stale entries and process new/changed files")
+    print("[A]ppend - Keep existing data and add new files only")
+    print("[Q]uit - Exit without changes")
+
+    while True:
+        try:
+            choice = input("\nChoose [F/C/A/Q]: ").strip().upper()
+            if choice in ["F", "FRESH"]:
+                return "fresh"
+            elif choice in ["C", "CLEAN"]:
+                return "clean"
+            elif choice in ["A", "APPEND"]:
+                return "append"
+            elif choice in ["Q", "QUIT"]:
+                return "quit"
+            else:
+                print("Please enter F, C, A, or Q")
+        except (EOFError, KeyboardInterrupt):
+            print("\nOperation cancelled.")
+            return "quit"
+
+
+def _clean_stale_entries(stale_files: List[str]) -> None:
+    """Remove stale entries from processed files, database, and rebuild FAISS index.
+
+    Args:
+        stale_files: List of file paths that no longer exist
+    """
+    if not stale_files or not CONFIG:
+        return
+
+    print(f"🧹 Cleaning {len(stale_files)} stale entries...")
+
+    # Build hash set of stale files
+    stale_hashes = set()
+    hash_to_path = {}
+
+    if CONFIG.processed_log and CONFIG.processed_log.exists():
+        try:
+            with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and "|" in line:
+                        parts = line.split("|", 1)
+                        if len(parts) == 2:
+                            file_hash, file_path = parts[0].strip(), parts[1].strip()
+                            hash_to_path[file_hash] = file_path
+                            if file_path in stale_files:
+                                stale_hashes.add(file_hash)
+        except (OSError, UnicodeDecodeError):
+            print("   Warning: Could not read processed files log")
+
+    # Clean processed_files.txt
+    if stale_hashes and CONFIG.processed_log:
+        try:
+            # Read all entries
+            valid_entries = []
+            with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and "|" in line:
+                        parts = line.split("|", 1)
+                        if len(parts) == 2:
+                            file_hash, file_path = parts[0].strip(), parts[1].strip()
+                            if file_hash not in stale_hashes:
+                                valid_entries.append(line)
+
+            # Rewrite file with valid entries only
+            with open(CONFIG.processed_log, "w", encoding="utf-8") as f:
+                for entry in valid_entries:
+                    f.write(f"{entry}\n")
+
+            print(
+                f"   Cleaned processed files log ({len(valid_entries)} entries remain)"
+            )
+
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"   Warning: Could not clean processed files log: {e}")
+
+    # Clean database
+    if CONFIG.db_path and CONFIG.db_path.exists():
+        try:
+            import sqlite_utils
+
+            db = sqlite_utils.Database(CONFIG.db_path)
+
+            # Get stale document sources in multiple formats to match database
+            stale_sources = []
+            for path in stale_files:
+                # Try different formats: filename only, full path, relative path
+                stale_sources.extend(
+                    [
+                        Path(path).name,  # just filename
+                        path,  # full path as stored
+                        (
+                            str(Path(path).relative_to(Path.cwd()))
+                            if Path(path).is_absolute()
+                            else path
+                        ),  # relative path
+                    ]
+                )
+
+            if stale_sources:
+                # Delete chunks for stale documents
+                placeholders = ",".join(["?" for _ in stale_sources])
+                query = f"DELETE FROM chunks WHERE source IN ({placeholders})"
+                db.execute(query, stale_sources)
+
+                deleted_count = db.execute("SELECT changes()").fetchone()[0]
+                print(f"   Cleaned database ({deleted_count} chunks removed)")
+
+        except Exception as e:
+            print(f"   Warning: Could not clean database: {e}")
+
+    # Force FAISS index rebuild
+    if CONFIG.index_path and CONFIG.index_path.exists():
+        CONFIG.index_path.unlink()
+        print("   Removed FAISS index (will be rebuilt)")
+
+    print("✅ Stale entries cleaned successfully")
+
+
 def _scan_and_process_files(
     root_path: Union[str, Path],
     ocr: OCRProcessor,
@@ -890,7 +1083,11 @@ def _scan_and_process_files(
     else:
         # Only process files in the root directory
         try:
-            root_files = [f for f in os.listdir(root_path) if os.path.isfile(os.path.join(root_path, f))]
+            root_files = [
+                f
+                for f in os.listdir(root_path)
+                if os.path.isfile(os.path.join(root_path, f))
+            ]
             walker = [(str(root_path), [], root_files)]
         except OSError:
             print(f"❌ Cannot access directory: {root_path}")
@@ -902,7 +1099,7 @@ def _scan_and_process_files(
                 "skipped_problems": 0,
                 "skip_reasons": {},
             }
-    
+
     for dirpath, _, filenames in walker:
         for fname in filenames:
             path = os.path.join(dirpath, fname)
@@ -1012,9 +1209,11 @@ def _print_summary(
 # -----------------------
 # Main build
 # -----------------------
-def build_index(root_folder: str, fresh_start: bool = False, recurse_subdirs: bool = True) -> None:
+def build_index(
+    root_folder: str, fresh_start: bool = False, recurse_subdirs: bool = True
+) -> None:
     """Main function to build FAISS index from documents in a folder.
-    
+
     Args:
         root_folder: Root directory containing documents to process
         fresh_start: If True, clears existing index, database, and processed files log
@@ -1094,6 +1293,72 @@ def build_index(root_folder: str, fresh_start: bool = False, recurse_subdirs: bo
     # Load processed files
     processed = _load_processed_files()
 
+    # Check for stale documents (only if not doing fresh start and we have processed files)
+    if not fresh_start and processed:
+        print("🔍 Checking for stale document references...")
+
+        # Get list of current files in directory
+        current_files = []
+        for ext in [
+            "*.pdf",
+            "*.html",
+            "*.htm",
+            "*.png",
+            "*.jpg",
+            "*.jpeg",
+            "*.tiff",
+            "*.bmp",
+        ]:
+            if recurse_subdirs:
+                current_files.extend(root_path.rglob(ext))
+            else:
+                current_files.extend(root_path.glob(ext))
+
+        # Filter out files that should be skipped
+        filtered_files = []
+        for file_path in current_files:
+            if not any(file_path.match(pattern) for pattern in config.SKIP_FILES):
+                filtered_files.append(file_path)
+
+        # Detect stale documents
+        stale_files = _detect_stale_documents(processed, filtered_files)
+
+        if stale_files:
+            user_choice = _prompt_user_stale_action(stale_files)
+
+            if user_choice == "quit":
+                print("Operation cancelled by user.")
+                sys.exit(0)
+            elif user_choice == "fresh":
+                print("🆕 User chose fresh start - clearing all existing files")
+                fresh_start = True
+                # Clear index
+                if CONFIG.index_path and CONFIG.index_path.exists():
+                    CONFIG.index_path.unlink()
+                    print("   Removed existing FAISS index")
+                # Clear database
+                if CONFIG.db_path and CONFIG.db_path.exists():
+                    CONFIG.db_path.unlink()
+                    print("   Removed existing metadata database")
+                # Clear processed files log
+                if CONFIG.processed_log and CONFIG.processed_log.exists():
+                    CONFIG.processed_log.unlink()
+                    print("   Removed processed files log")
+                # Reload empty processed set
+                processed = set()
+                # Reload empty index and metadata
+                index, metadata = None, []
+            elif user_choice == "clean":
+                print("🧹 User chose clean - removing stale entries")
+                _clean_stale_entries(stale_files)
+                # Reload processed files and metadata after cleaning
+                processed = _load_processed_files()
+                index, metadata = _load_existing_index()
+            # For 'append', we just continue with existing data
+
+        else:
+            print("✅ No stale documents detected")
+
     # Scan and process files
     if recurse_subdirs:
         print("🔄 Starting file scan and processing (including subdirectories)...")
@@ -1120,6 +1385,7 @@ def build_index(root_folder: str, fresh_start: bool = False, recurse_subdirs: bo
     if index is None or chunk_total == 0:
         print("❌ No text extracted. Nothing indexed.")
         sys.exit(2)
+
 
     # Print summary
     print("📊 Generating summary...")
@@ -1249,9 +1515,7 @@ def _process_file(
                     logger.info("✅ IVF index retraining completed")
                 else:
                     # Retraining failed, fall back to normal addition
-                    logger.info(
-                        "IVF retraining failed, continuing with existing index"
-                    )
+                    logger.info("IVF retraining failed, continuing with existing index")
                     index.add(embs)  # type: ignore
             else:
                 # Fallback index created, add all vectors
@@ -1262,29 +1526,33 @@ def _process_file(
             # Normal vector addition
             index.add(embs)  # type: ignore
 
-    # Add metadata to SQLite database and list  
+    # Add metadata to SQLite database and list
     db: Any = sqlite_utils.Database(str(CONFIG.db_path))
-    
+
     # Ensure chunks table exists with proper schema
     chunks_table: Any = db["chunks"]
     if "chunks" not in db.table_names():
-        chunks_table.create({
-            "id": int,
-            "source": str,
-            "chunk_index": int,
-            "text": str,
-            "file_hash": str,  # type: ignore
-            "created_at": str  # type: ignore
-        }, pk="id")  # type: ignore
+        chunks_table.create(
+            {
+                "id": int,
+                "source": str,
+                "chunk_index": int,
+                "text": str,
+                "file_hash": str,  # type: ignore
+                "created_at": str,  # type: ignore
+            },
+            pk="id",
+        )  # type: ignore
         # Create index on source for faster queries
         chunks_table.create_index(["source"])  # type: ignore
         chunks_table.create_index(["file_hash"])  # type: ignore
-    
+
     # Calculate file hash for better deduplication
     file_hash = _calculate_file_hash(path)
     from datetime import datetime
+
     created_at = datetime.now().isoformat()
-    
+
     # Insert chunks into database and add to metadata list
     chunk_records = []
     for i, ch in enumerate(chunks):
@@ -1293,11 +1561,11 @@ def _process_file(
             "chunk_index": i,
             "text": ch,
             "file_hash": file_hash,
-            "created_at": created_at
+            "created_at": created_at,
         }
         chunk_records.append(chunk_data)
         metadata.append({"source": path, "chunk_index": i, "text": ch})
-    
+
     # Batch insert for better performance
     chunks_table.insert_all(chunk_records)  # type: ignore
 
@@ -1379,7 +1647,9 @@ def main() -> None:
         print(f"Processing folder: {args.folder}")
 
     _initialize_global_instances()
-    build_index(args.folder, fresh_start=args.fresh, recurse_subdirs=not args.no_recurse)
+    build_index(
+        args.folder, fresh_start=args.fresh, recurse_subdirs=not args.no_recurse
+    )
 
 
 if __name__ == "__main__":
