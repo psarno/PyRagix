@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,7 +9,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
+
 <body>
     <div class="container">
         <!-- Header -->
@@ -32,14 +35,8 @@
                 <div class="search-container">
                     <form class="search-form" id="searchForm">
                         <div class="search-input-wrapper">
-                            <input 
-                                type="text" 
-                                class="search-input" 
-                                id="searchInput"
-                                placeholder="Ask me anything about your documents..."
-                                required
-                                autocomplete="off"
-                            >
+                            <input type="text" class="search-input" id="searchInput"
+                                placeholder="Ask me anything about your documents..." required autocomplete="off">
                             <button type="submit" class="search-button" id="searchButton">
                                 <span class="search-icon">🚀</span>
                                 <span class="search-text">Search</span>
@@ -103,6 +100,36 @@
                     <div class="sources-list" id="sourcesList"></div>
                 </div>
 
+                <!-- Embedding Visualization -->
+                <div class="visualization-container" id="visualizationContainer" style="display: none;">
+                    <div class="visualization-header">
+                        <h3>🔍 Embedding Visualization</h3>
+                        <div class="visualization-controls">
+                            <div class="control-group">
+                                <label for="vizMethod">Method:</label>
+                                <select id="vizMethod" class="viz-select">
+                                    <option value="umap" selected>UMAP</option>
+                                    <option value="tsne">t-SNE</option>
+                                </select>
+                            </div>
+                            <div class="control-group">
+                                <label for="vizDimensions">View:</label>
+                                <select id="vizDimensions" class="viz-select">
+                                    <option value="2" selected>2D</option>
+                                    <option value="3">3D</option>
+                                </select>
+                            </div>
+                            <button id="refreshViz" class="viz-button">Refresh</button>
+                        </div>
+                    </div>
+                    <div class="visualization-loading" id="vizLoading" style="display: none;">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">Generating visualization...</div>
+                    </div>
+                    <div class="visualization-plot" id="visualizationPlot"></div>
+                    <div class="visualization-info" id="visualizationInfo"></div>
+                </div>
+
                 <!-- Error Message -->
                 <div class="error-container" id="errorContainer" style="display: none;">
                     <div class="error-header">
@@ -129,4 +156,5 @@
 
     <script type="module" src="script.js"></script>
 </body>
+
 </html>
