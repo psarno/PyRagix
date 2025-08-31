@@ -1,6 +1,6 @@
 [project]
 name = "pyragix"
-version = "0.2.0"
+version = "0.3.0"
 description = "A document ingestion and RAG query system with FAISS indexing and OCR support"
 authors = [{name = "psarno", email = "psarno@users.noreply.github.com"}]
 license = "MIT"
