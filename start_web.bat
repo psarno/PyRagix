@@ -7,7 +7,14 @@ echo.
 REM Check if virtual environment is activated
 if not defined VIRTUAL_ENV (
     echo Activating virtual environment...
-    call rag-env\Scripts\activate.bat
+    if exist "rag-env" (
+        call rag-env\Scripts\activate.bat
+    ) else if exist "venv" (
+        call venv\Scripts\activate.bat
+    ) else (
+        echo Warning: No virtual environment found (rag-env or venv)
+        echo Continuing with system Python...
+    )
 ) else (
     echo Virtual environment already active: %VIRTUAL_ENV%
 )
