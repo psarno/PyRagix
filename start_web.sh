@@ -7,9 +7,9 @@ echo
 # Check if virtual environment is activated
 if [[ -z "$VIRTUAL_ENV" ]]; then
     echo "Activating virtual environment..."
-    if [[ -d "rag-env" ]]; then
+    if [[ -f "rag-env/bin/activate" ]]; then
         source rag-env/bin/activate
-    elif [[ -d "venv" ]]; then
+    elif [[ -f "venv/bin/activate" ]]; then
         source venv/bin/activate
     else
         echo "Warning: No virtual environment found (rag-env or venv)"
