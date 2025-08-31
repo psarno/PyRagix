@@ -54,6 +54,24 @@
 
 # ALWAYS Format all markdown files with no automatic line breaks - only break lines for actual paragraphs, lists, or code blocks. Do not wrap text at 80 characters.
 
+## Decision Consistency
+
+# NEVER revisit a settled type choice (Any vs specific types) within the same session unless import structure changes
+
+# ALWAYS state "keeping previous decision: [reason]" when asked to reconsider recently resolved type/pattern choices
+
+# NEVER suggest Protocol alternatives after Any has been chosen for deferred imports
+
+# ALWAYS acknowledge when a suggestion would contradict a recent architectural decision and explain why context changed (if it did)
+
+## Context Awareness
+
+# NEVER re-optimize code patterns that were just discussed and settled in the current session
+
+# ALWAYS reference the just-completed discussion when asked to modify related code: "As we just established..."
+
+# NEVER cycle between multiple approaches for the same problem without explicit request to explore alternatives
+
 ---
 
 **Post-major-changes checklist**: Check VS Code Problems panel for Pylance
