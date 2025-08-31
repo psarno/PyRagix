@@ -506,11 +506,15 @@ function createEmbeddingPlot(vizData: VisualizationResponse): void {
         colorscale: 'Viridis',
         showscale: true,
         colorbar: { 
-          title: 'Similarity Score', 
+          title: { text: 'Similarity Score', font: { color: '#d0d0d0', size: 14 } },
           x: 1.02,
           len: 0.6,
           y: 0.4,
-          yanchor: 'middle'
+          yanchor: 'middle',
+          tickfont: { color: '#d0d0d0', size: 12 },
+          bordercolor: '#444444',
+          borderwidth: 1,
+          bgcolor: 'rgba(0,0,0,0.8)'
         },
         line: { color: '#ffffff', width: 1 }
       },
