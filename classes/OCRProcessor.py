@@ -15,9 +15,15 @@ import paddle
 from PIL import Image
 from paddleocr import PaddleOCR
 
+import os, sys
+base = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
+for sub in ["cudnn", "cublas", "cufft", "curand", "cusolver", "cusparse", "cuda_runtime"]:
+    bin_path = os.path.join(base, sub, "bin")
+    if os.path.isdir(bin_path):
+        os.add_dll_directory(bin_path)
+
 # Set up logger
 logger = logging.getLogger(__name__)
-
 
 class OCRProcessor:
     """Handles all OCR operations with PaddleOCR."""
@@ -53,7 +59,7 @@ class OCRProcessor:
             # Not using CUDA or method not available
             pass
 
-    def ocr_pil_image(self, pil_img: Image.Image) -> str:
+    def ocr_pil_image(self, pil_img: Any) -> str:
         """Extract text from PIL image using OCR."""
         try:
             # Convert and process

@@ -144,6 +144,8 @@ def _apply_user_configuration() -> None:
         "NUMEXPR_MAX_THREADS",
         "CUDA_VISIBLE_DEVICES",
         "PYTORCH_CUDA_ALLOC_CONF",
+        "FAISS_DISABLE_CPU",
+        "CUDA_LAUNCH_BLOCKING",
     ]
 
     for var in env_vars:
@@ -1243,11 +1245,13 @@ def build_index(
     print(f"⚙️ Index type: {config.INDEX_TYPE.upper()}")
     if config.INDEX_TYPE.lower() == "ivf":
         print(f"🎯 IVF settings: nlist={config.NLIST}, nprobe={config.NPROBE}")
+    # FAISS GPU status (only show if user explicitly enabled it)
     if config.GPU_ENABLED:
         gpu_status = "Active" if GPU_RESOURCES is not None else "Failed"
-        print(f"🎮 GPU acceleration: {gpu_status} (device {config.GPU_DEVICE})")
-    else:
-        print("💻 GPU acceleration: Disabled")
+        print(f"🎮 FAISS GPU acceleration: {gpu_status} (device {config.GPU_DEVICE})")
+        if gpu_status == "Failed":
+            print("   💡 FAISS GPU unavailable - using CPU (embeddings still use GPU)")
+    # When disabled, don't show confusing messages - system is optimized
 
     # Clean up obsolete pickle files (from pre-SQLite versions)
     pickle_file = root_path / "documents.pkl"
