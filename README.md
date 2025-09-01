@@ -92,8 +92,8 @@ PyRagix/
    source venv/bin/activate
    
    # Windows
-   python -m venv rag-env
-   rag-env\Scripts\activate.bat
+   python -m venv venv
+   venv\Scripts\activate.bat
    ```
 
 3. **Install Dependencies**: 

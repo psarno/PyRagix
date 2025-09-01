@@ -7,12 +7,10 @@ echo
 # Check if virtual environment is activated
 if [[ -z "$VIRTUAL_ENV" ]]; then
     echo "Activating virtual environment..."
-    if [[ -f "rag-env/bin/activate" ]]; then
-        source rag-env/bin/activate
-    elif [[ -f "venv/bin/activate" ]]; then
-        source venv/bin/activate
+    if [[ -f "venv/bin/activate" ]]; then
+        sourcevenv/bin/activate
     else
-        echo "Warning: No virtual environment found (rag-env or venv)"
+        echo "Warning: No virtual environment found (venv)"
         echo "Continuing with system Python..."
     fi
 else
