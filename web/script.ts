@@ -467,17 +467,19 @@ function createEmbeddingPlot(vizData: VisualizationResponse): void {
 
   // Query point trace
   if (queryPoints.length > 0) {
+    // Use the highest gradient color (Viridis colorscale at value 1.0)
+    const highGradientColor = '#fde725'; // Viridis yellow at max value
     const queryTrace: any = {
       x: queryPoints.map(p => p.x),
       y: queryPoints.map(p => p.y),
       mode: 'markers',
       type: dimensions === 3 ? 'scatter3d' : 'scatter',
-      name: '🎯 Your Query',
+      name: 'Your Query',
       marker: {
         size: 15,
-        color: '#ff6b6b',
+        color: highGradientColor,
         symbol: 'star',
-        line: { color: '#ffffff', width: 2 }
+        line: { color: '#b8860b', width: 2 } // Darker gold border for contrast
       },
       text: queryPoints.map(p => `Query: ${p.text}`),
       hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -499,24 +501,33 @@ function createEmbeddingPlot(vizData: VisualizationResponse): void {
       y: retrievedPoints.map(p => p.y),
       mode: 'markers',
       type: dimensions === 3 ? 'scatter3d' : 'scatter',
-      name: '✅ Retrieved Chunks',
+      name: 'Retrieved Chunks',
+      legendgroup: 'retrieved',
       marker: {
         size: retrievedPoints.map(p => 8 + p.score * 8),
         color: retrievedPoints.map(p => p.score),
         colorscale: 'Viridis',
         showscale: true,
         colorbar: { 
-          title: { text: 'Similarity Score', font: { color: '#d0d0d0', size: 14 } },
-          x: 1.02,
-          len: 0.6,
-          y: 0.4,
-          yanchor: 'middle',
-          tickfont: { color: '#d0d0d0', size: 12 },
+          title: { text: 'Similarity', font: { color: '#d4d4d4', size: 14 } }, // 30% lighter
+          x: -0.05, // Move to left side, aligned with legend
+          y: 0, // Start from bottom of plot area
+          len: 0.6, // Much taller - roughly align with plot bottom
+          thickness: 100, // Width to match legend (reduced from 120)
+          thicknessmode: 'pixels', // Explicit pixel mode
+          yanchor: 'bottom',
+          xanchor: 'right', // Anchor from right side
+          tickfont: { color: '#c0c0c0', size: 12 }, // 30% lighter for values
+          tickmode: 'linear',
+          tick0: 0.7,
+          dtick: 0.02,
+          ticklen: 5, // Add some padding from the colorbar edge
+          tickside: 'right', // Put ticks on right side for left padding
           bordercolor: '#444444',
           borderwidth: 1,
           bgcolor: 'rgba(0,0,0,0.8)'
         },
-        line: { color: '#ffffff', width: 1 }
+        line: { color: '#34b579', width: 1 } // Green from Viridis mid-range
       },
       text: retrievedPoints.map(p => `${p.source} (chunk ${p.chunk_idx})<br>Score: ${p.score.toFixed(3)}<br>${p.text.substring(0, 100)}...`),
       hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -538,7 +549,7 @@ function createEmbeddingPlot(vizData: VisualizationResponse): void {
       y: otherPoints.map(p => p.y),
       mode: 'markers',
       type: dimensions === 3 ? 'scatter3d' : 'scatter',
-      name: '📄 Other Documents',
+      name: 'Other Documents',
       marker: {
         size: 5,
         color: '#666666',
@@ -567,12 +578,12 @@ function createEmbeddingPlot(vizData: VisualizationResponse): void {
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: 'rgba(0,0,0,0)',
     legend: {
-      font: { color: '#ffffff', size: 12 },
+      font: { color: '#d4d4d4', size: 12 },
       bgcolor: 'rgba(0,0,0,0.7)',
       bordercolor: '#444444',
       borderwidth: 1,
       orientation: 'v',
-      x: -0.15,
+      x: -0.05, // Move closer to plot
       y: 1,
       xanchor: 'right',
       yanchor: 'top',
@@ -580,7 +591,7 @@ function createEmbeddingPlot(vizData: VisualizationResponse): void {
       itemwidth: 30,
       tracegroupgap: 8
     },
-    margin: { t: 50, l: 50, r: 120, b: 50 }
+    margin: { t: 50, l: 80, r: 20, b: 50 } // Optimized margins for left-side layout
   };
 
   const layout = dimensions === 3 ? {
