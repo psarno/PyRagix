@@ -44,7 +44,7 @@ _DEFAULT_CONFIG = {
     "CRASH_LOG_FILE": "crash_log.txt",
     # RAG/Query settings
     "OLLAMA_BASE_URL": "http://localhost:11434",
-    "OLLAMA_MODEL": "llama3.2:3b-instruct-q4_0",
+    "OLLAMA_MODEL": "qwen2.5:7b",
     "DEFAULT_TOP_K": 3,
     "REQUEST_TIMEOUT": 90,
     "TEMPERATURE": 0.1,
@@ -204,7 +204,6 @@ def validate_config() -> None:
     # Skip files validation
     if not isinstance(SKIP_FILES, set):
         raise ValueError("SKIP_FILES must be a set")
-
 
 
 # Validate on import
