@@ -776,7 +776,7 @@ def _should_skip_file(path: str, ext: str, processed: Set[str]) -> Tuple[bool, s
                     return True, f"PDF with {doc.page_count} pages"
                 if CONFIG.skip_form_pdfs:
                     try:
-                        if doc.widgets():
+                        if getattr(doc, 'widgets', lambda: [])():
                             return True, "form-heavy PDF (has interactive fields)"
                     except AttributeError:
                         # Older PyMuPDF versions don't have widgets() method
