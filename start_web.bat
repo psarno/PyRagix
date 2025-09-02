@@ -17,7 +17,6 @@ if not defined VIRTUAL_ENV (
     echo Virtual environment already active: %VIRTUAL_ENV%
 )
 
-echo.
 echo Checking Python dependencies...
 python -c "import fastapi, uvicorn" 2>nul
 if %errorlevel% neq 0 (
@@ -25,11 +24,28 @@ if %errorlevel% neq 0 (
     pip install fastapi uvicorn[standard]
 )
 
-echo.
 echo Setting up GPU environment for Ollama...
 set CUDA_VISIBLE_DEVICES=0
 set OLLAMA_GPU_COMPUTE_CAPABILITY=7.5
 set OLLAMA_NUM_GPU=1
+
+echo Compiling TypeScript...
+
+cd web
+
+if exist "script.ts" (
+    call tsc
+    if %errorlevel% neq 0 (
+        echo Warning: TypeScript compilation failed, but continuing...
+        echo Check your TypeScript installation with: npm install -g typescript
+    ) else (
+        echo TypeScript compiled successfully!
+    )
+) else (
+    echo No TypeScript files found to compile
+)
+
+cd ..
 
 echo Starting RAG Web Server...
 echo Web interface: http://localhost:8000/web/
