@@ -18,7 +18,7 @@ class ProcessingConfig:
     # Text processing
     chunk_size: int = 1600  # characters
     chunk_overlap: int = 200  # characters
-    embed_model: str = "all-MiniLM-L6-v2"
+    embed_model: str = config.EMBED_MODEL
 
     # File paths
     index_path: Path = field(default_factory=lambda: Path("local_faiss.index"))

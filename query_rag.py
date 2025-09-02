@@ -77,7 +77,7 @@ from __version__ import __version__
 
 # Default configuration - uses config.py for machine-specific settings
 DEFAULT_CONFIG: RAGConfig = {
-    "embed_model": "all-MiniLM-L6-v2",
+    "embed_model": config.EMBED_MODEL,
     "index_path": Path("local_faiss.index"),
     "db_path": Path("documents.db"),
     "ollama_base_url": config.OLLAMA_BASE_URL,

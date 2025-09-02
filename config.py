@@ -43,6 +43,7 @@ _DEFAULT_CONFIG = {
     "INGESTION_LOG_FILE": "ingestion.log",
     "CRASH_LOG_FILE": "crash_log.txt",
     # RAG/Query settings
+    "EMBED_MODEL": "all-MiniLM-L6-v2",
     "OLLAMA_BASE_URL": "http://localhost:11434",
     "OLLAMA_MODEL": "qwen2.5:7b",
     "DEFAULT_TOP_K": 3,
@@ -73,7 +74,10 @@ def _load_settings() -> Dict[str, Any]:
             if "SKIP_FILES" in user_settings:
                 user_settings["SKIP_FILES"] = set(user_settings["SKIP_FILES"])
 
-            return user_settings
+            # Merge defaults with user settings (user settings take precedence)
+            merged_settings = _DEFAULT_CONFIG.copy()
+            merged_settings.update(user_settings)
+            return merged_settings
 
         except (json.JSONDecodeError, OSError) as e:
             print(f"Warning: Could not load {SETTINGS_FILE}: {e}")
@@ -136,6 +140,7 @@ BATCH_SIZE_RETRY_DIVISOR: int = _settings["BATCH_SIZE_RETRY_DIVISOR"]
 INGESTION_LOG_FILE: str = _settings["INGESTION_LOG_FILE"]
 CRASH_LOG_FILE: str = _settings["CRASH_LOG_FILE"]
 
+EMBED_MODEL: str = _settings["EMBED_MODEL"]
 OLLAMA_BASE_URL: str = _settings["OLLAMA_BASE_URL"]
 OLLAMA_MODEL: str = _settings["OLLAMA_MODEL"]
 DEFAULT_TOP_K: int = _settings["DEFAULT_TOP_K"]
