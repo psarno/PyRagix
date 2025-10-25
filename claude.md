@@ -20,15 +20,14 @@
 
 ## Code Quality
 
-# ALWAYS check Pylance static analysis after major changes or TODO implementations
-
-# ALWAYS fix Pylance errors and warnings before considering code complete
-
-# NEVER leave unresolved Pylance static analysis issues
+ # ALWAYS resolve ALL Pylance static analysis issues before considering any code complete - no exceptions for "just warnings"
 
 # NEVER accept "it's just a warning" - all static analysis issues must be resolved
 
-# ALWAYS use proper typing (Any, Optional, etc.) rather than leaving warnings
+# ALWAYS use TYPE_CHECKING imports for lazy-loaded dependencies to maintain both type safety and performance
+# Example: if TYPE_CHECKING: import faiss  # then use faiss.Index in type hints
+
+# NEVER use scattered local imports without considering type annotation implications - prefer TYPE_CHECKING pattern for heavy libraries
 
 ## CLI Best Practices
 
@@ -63,6 +62,8 @@
 # NEVER suggest Protocol alternatives after Any has been chosen for deferred imports
 
 # ALWAYS acknowledge when a suggestion would contradict a recent architectural decision and explain why context changed (if it did)
+
+  # NEVER assume previous solutions are preserved - always verify critical performance optimizations are still in place
 
 ## Context Awareness
 
