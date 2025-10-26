@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import traceback
 from pathlib import Path
-from typing import Any, TypedDict, Sequence
+from typing import TypedDict, Sequence
 from contextlib import asynccontextmanager
 
 # ===============================
