@@ -53,9 +53,13 @@ pyragix-web = "web_server:main"
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
-    "pyright>=1.1.390",
+    "ruff>=0.14.2",
+    "pytest>=8.4.2",
+    "twine",
+    "build",
+    "pyright>=1.1.407"
 ]
 
 [tool.setuptools]
