@@ -138,9 +138,9 @@ def _safe_dpi_for_page(
 
     if max_pixels is not None and width_px * height_px > max_pixels:
         scale *= math.sqrt(max_pixels / (width_px * height_px))
-    if max_side is not None and width_px * scale > max_side:
+    if width_px * scale > max_side:
         scale *= max_side / (width_px * scale)
-    if max_side is not None and height_px * scale > max_side:
+    if height_px * scale > max_side:
         scale *= max_side / (height_px * scale)
 
     return max(72, int(base_dpi * scale))

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from io import TextIOWrapper
 import os
 import sys
-from typing import Sequence
+from typing import Sequence, cast
 
 import config
 from ingestion.environment import EnvironmentManager
@@ -12,12 +13,7 @@ from ingestion.pipeline import build_index
 
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI entry point for the ingestion pipeline."""
-    try:
-        stdout = sys.stdout
-        if hasattr(stdout, "reconfigure") and callable(getattr(stdout, "reconfigure", None)):
-            stdout.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, OSError, Exception):
-        pass
+    cast(TextIOWrapper, sys.stdout).reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(
         description="Ingest folder -> FAISS (PDF/HTML/Images with OCR fallback)"

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from classes.ProcessingConfig import ProcessingConfig
 from ingestion.file_filters import (
-    calculate_file_hash,
     clean_stale_entries,
     detect_stale_documents,
     prompt_user_stale_action,

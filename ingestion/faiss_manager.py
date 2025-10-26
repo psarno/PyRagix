@@ -210,8 +210,7 @@ class FaissManager:
 
         try:
             gpu_res = faiss.StandardGpuResources()
-            if hasattr(gpu_res, "setTempMemoryFraction"):
-                gpu_res.setTempMemoryFraction(config.GPU_MEMORY_FRACTION)
+            gpu_res.setTempMemoryFraction(config.GPU_MEMORY_FRACTION)
 
             logger.info(
                 "🎮 GPU resources initialized "

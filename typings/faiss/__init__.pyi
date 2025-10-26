@@ -126,3 +126,47 @@ def vector_to_array(vector: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
         Numpy array representation of the vector
     """
     ...
+
+# GPU support (only available with faiss-gpu)
+class StandardGpuResources:
+    """GPU resources manager for FAISS GPU indices."""
+
+    def __init__(self) -> None:
+        """Initialize GPU resources."""
+        ...
+
+    def setTempMemoryFraction(self, fraction: float) -> None:
+        """Set fraction of GPU memory to use for temporary storage.
+
+        Args:
+            fraction: Memory fraction (0.0 to 1.0)
+        """
+        ...
+
+def index_cpu_to_gpu(
+    resources: StandardGpuResources,
+    device: int,
+    index: Index,
+) -> Index:
+    """Move a CPU index to GPU.
+
+    Args:
+        resources: GPU resources manager
+        device: GPU device ID
+        index: CPU index to move
+
+    Returns:
+        GPU version of the index
+    """
+    ...
+
+def index_gpu_to_cpu(index: Index) -> Index:
+    """Move a GPU index to CPU.
+
+    Args:
+        index: GPU index to move
+
+    Returns:
+        CPU version of the index
+    """
+    ...

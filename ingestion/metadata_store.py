@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Sequence, TypedDict
+from typing import Any, Sequence, TypedDict, cast
 
 import sqlite_utils
 
@@ -36,7 +36,7 @@ def load_metadata(db_path: Path) -> list[MetadataDict]:
 
     chunks_table = db["chunks"]
     records: list[MetadataDict] = []
-    for row in chunks_table.rows:
+    for row in chunks_table.rows():
         try:
             records.append(
                 {
@@ -73,7 +73,7 @@ def insert_chunk_records(db_path: Path, chunk_records: Sequence[ChunkRecord]) ->
         chunks_table.create_index(["source"])
         chunks_table.create_index(["file_hash"])
 
-    chunks_table.insert_all(chunk_records)
+    chunks_table.insert_all(cast(Sequence[dict[str, Any]], chunk_records))
 
 
 def build_bm25_index(metadata: Sequence[MetadataDict]) -> None:
