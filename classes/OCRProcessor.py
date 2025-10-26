@@ -7,7 +7,7 @@ import gc
 import logging
 import math
 from io import BytesIO
-from typing import Any, Optional
+from typing import Any
 
 import fitz  # PyMuPDF
 import numpy as np
@@ -81,7 +81,7 @@ class OCRProcessor:
             # Clear array from memory
             del arr
             
-            if not result or not isinstance(result, list) or not result:
+            if not result:
                 return ""
             first_result = result[0] if len(result) > 0 else None
             if not first_result:
@@ -95,8 +95,8 @@ class OCRProcessor:
         self,
         page: Any,
         dpi: int,
-        tile_px: Optional[int] = None,
-        overlap: Optional[int] = None,
+        tile_px: int | None = None,
+        overlap: int | None = None,
     ) -> str:
         """OCR a page by splitting it into tiles to manage memory usage."""
         if tile_px is None:
@@ -121,7 +121,7 @@ class OCRProcessor:
         # tile size in page coordinates (points)
         tile_w_pts = tile_px / s
         tile_h_pts = tile_px / s
-        ov_pts = overlap / s  # type: ignore
+        ov_pts = overlap / s 
 
         for iy in range(ny):
             for ix in range(nx):
@@ -140,7 +140,7 @@ class OCRProcessor:
 
                 try:
                     # GRAY, no alpha massively reduces memory (n=1 channel)
-                    pix = page.get_pixmap(  # type: ignore[attr-defined]
+                    pix = page.get_pixmap(
                         matrix=fitz.Matrix(s, s),
                         colorspace=fitz.csGRAY,
                         alpha=False,
@@ -167,7 +167,7 @@ class OCRProcessor:
                         pix = None
                     self._cleanup_memory()  # Force cleanup on error
                     # If a tile still fails (rare), try halving tile size once
-                    if tile_px is not None and tile_px > 800:
+                    if tile_px > 800:
                         return self.ocr_page_tiled(
                             page, dpi, tile_px=tile_px // 2, overlap=overlap
                         )
@@ -215,7 +215,7 @@ class OCRProcessor:
             try:
                 result = self.ocr.predict(arr)
                 del arr  # Free array memory immediately
-                if not result or not isinstance(result, list) or not result:
+                if not result:
                     return ""
                 first_result = result[0] if len(result) > 0 else None
                 if not first_result:
@@ -239,7 +239,7 @@ class OCRProcessor:
                 try:
                     result = self.ocr.predict(arr)
                     del arr  # Free array memory immediately
-                    if not result or not isinstance(result, list) or not result:
+                    if not result:
                         return ""
                     first_result = result[0] if len(result) > 0 else None
                     if not first_result:

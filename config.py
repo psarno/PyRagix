@@ -11,7 +11,7 @@ from typing import Literal, Any
 IndexType = Literal["flat", "ivf_flat", "ivf_pq"]
 
 # Default configuration values
-_DEFAULT_CONFIG = {
+_DEFAULT_CONFIG: dict[str, int | str | bool | float | list[str]] = {
     # CPU / Threading
     "TORCH_NUM_THREADS": 6,
     "OPENBLAS_NUM_THREADS": 6,
@@ -202,18 +202,18 @@ def validate_config() -> None:
     ]
 
     for config_name, config_val in positive_int_configs:
-        if not isinstance(config_val, int) or config_val <= 0:
+        if config_val <= 0:
             raise ValueError(
                 f"{config_name} must be a positive integer, got: {config_val}"
             )
 
     # Float configs with valid ranges
-    if not isinstance(TEMPERATURE, (int, float)) or not (0.0 <= TEMPERATURE <= 2.0):
+    if not (0.0 <= TEMPERATURE <= 2.0):
         raise ValueError(
             f"TEMPERATURE must be a float between 0.0 and 2.0, got: {TEMPERATURE}"
         )
 
-    if not isinstance(TOP_P, (int, float)) or not (0.0 <= TOP_P <= 1.0):
+    if not (0.0 <= TOP_P <= 1.0):
         raise ValueError(f"TOP_P must be a float between 0.0 and 1.0, got: {TOP_P}")
 
     # String configs
@@ -226,7 +226,7 @@ def validate_config() -> None:
     ]
 
     for config_name, config_val in string_configs:
-        if not isinstance(config_val, str) or not config_val.strip():
+        if not config_val.strip():
             raise ValueError(
                 f"{config_name} must be a non-empty string, got: {config_val}"
             )
@@ -238,65 +238,41 @@ def validate_config() -> None:
             f"INDEX_TYPE must be one of {valid_index_types}, got: {INDEX_TYPE}"
         )
 
-    # Skip files validation
-    if not isinstance(SKIP_FILES, set):
-        raise ValueError("SKIP_FILES must be a set")
-
     # Phase 1: Query Expansion validation
-    if not isinstance(ENABLE_QUERY_EXPANSION, bool):
-        raise ValueError(
-            f"ENABLE_QUERY_EXPANSION must be a boolean, got: {ENABLE_QUERY_EXPANSION}"
-        )
-
-    if not isinstance(QUERY_EXPANSION_COUNT, int) or QUERY_EXPANSION_COUNT < 1:
+    if QUERY_EXPANSION_COUNT < 1:
         raise ValueError(
             f"QUERY_EXPANSION_COUNT must be a positive integer, got: {QUERY_EXPANSION_COUNT}"
         )
 
     # Phase 1: Reranking validation
-    if not isinstance(ENABLE_RERANKING, bool):
-        raise ValueError(
-            f"ENABLE_RERANKING must be a boolean, got: {ENABLE_RERANKING}"
-        )
-
-    if not isinstance(RERANKER_MODEL, str) or not RERANKER_MODEL.strip():
+    if not RERANKER_MODEL.strip():
         raise ValueError(
             f"RERANKER_MODEL must be a non-empty string, got: {RERANKER_MODEL}"
         )
 
-    if not isinstance(RERANK_TOP_K, int) or RERANK_TOP_K < 1:
+    if RERANK_TOP_K < 1:
         raise ValueError(
             f"RERANK_TOP_K must be a positive integer, got: {RERANK_TOP_K}"
         )
 
     # Phase 2: Hybrid Search validation
-    if not isinstance(ENABLE_HYBRID_SEARCH, bool):
-        raise ValueError(
-            f"ENABLE_HYBRID_SEARCH must be a boolean, got: {ENABLE_HYBRID_SEARCH}"
-        )
-
-    if not isinstance(HYBRID_ALPHA, (int, float)) or not (0.0 <= HYBRID_ALPHA <= 1.0):
+    if not (0.0 <= HYBRID_ALPHA <= 1.0):
         raise ValueError(
             f"HYBRID_ALPHA must be a float in [0.0, 1.0], got: {HYBRID_ALPHA}"
         )
 
-    if not isinstance(BM25_INDEX_PATH, str) or not BM25_INDEX_PATH.strip():
+    if not BM25_INDEX_PATH.strip():
         raise ValueError(
             f"BM25_INDEX_PATH must be a non-empty string, got: {BM25_INDEX_PATH}"
         )
 
     # Phase 3: Semantic Chunking validation
-    if not isinstance(ENABLE_SEMANTIC_CHUNKING, bool):
-        raise ValueError(
-            f"ENABLE_SEMANTIC_CHUNKING must be a boolean, got: {ENABLE_SEMANTIC_CHUNKING}"
-        )
-
-    if not isinstance(SEMANTIC_CHUNK_MAX_SIZE, int) or SEMANTIC_CHUNK_MAX_SIZE < 100:
+    if SEMANTIC_CHUNK_MAX_SIZE < 100:
         raise ValueError(
             f"SEMANTIC_CHUNK_MAX_SIZE must be an integer >= 100, got: {SEMANTIC_CHUNK_MAX_SIZE}"
         )
 
-    if not isinstance(SEMANTIC_CHUNK_OVERLAP, int) or SEMANTIC_CHUNK_OVERLAP < 0:
+    if SEMANTIC_CHUNK_OVERLAP < 0:
         raise ValueError(
             f"SEMANTIC_CHUNK_OVERLAP must be a non-negative integer, got: {SEMANTIC_CHUNK_OVERLAP}"
         )

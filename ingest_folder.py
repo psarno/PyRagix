@@ -1,4 +1,5 @@
 from __future__ import annotations
+from io import BytesIO
 
 # ======================================
 # Ingestion script
@@ -30,10 +31,10 @@ import traceback
 import math
 import gc
 import hashlib
-from io import BytesIO
 from pathlib import Path
 from typing import (
     Any,
+    Iterable,
     Iterator,
     Protocol,
     Union,
@@ -43,9 +44,11 @@ from typing import (
 
 if TYPE_CHECKING:
     import faiss
-from typing_extensions import TypedDict
+    from sqlite_utils import Cursor
+    from typing_extensions import TypedDict
 from contextlib import contextmanager
 import config
+from types_models import MetadataDict
 
 
 # Protocol definitions for PyMuPDF types
@@ -82,6 +85,17 @@ class PDFDocument(Protocol):
     def __iter__(self) -> Iterator[PDFPage]: ...
     def extract_image(self, xref: int) -> dict[str, Any] | None: ...
     def widgets(self) -> list[Any]: ...
+
+
+class EmbeddingModel(Protocol):
+    def encode(
+        self,
+        sentences: list[str],
+        *,
+        batch_size: int,
+        convert_to_numpy: bool,
+        normalize_embeddings: bool,
+    ) -> np.ndarray: ...
 
 
 # Type definitions
@@ -287,7 +301,7 @@ def _train_ivf_index(index: faiss.Index, training_data: np.ndarray) -> bool:
             f"🎯 Training IVF index with {num_vectors} vectors, {nlist} clusters..."
         )
         with _memory_cleanup():
-            index.train(training_data)  # type: ignore
+            index.train(training_data)
         logger.info("✅ IVF index training completed")
         return True
     except (RuntimeError, ValueError) as e:
@@ -402,9 +416,9 @@ def _needs_retraining(index: faiss.Index, new_vector_count: int) -> bool:
     return False
 
 
-def _init_embedder() -> SentenceTransformer:
+def _init_embedder() -> EmbeddingModel:
     assert _config is not None, "_config must be initialized before use"
-    return SentenceTransformer(_config.embed_model)
+    return cast(EmbeddingModel, SentenceTransformer(_config.embed_model))
 
 
 def _clean_text(s: str) -> str:
@@ -485,7 +499,7 @@ def _chunk_text(
             )
 
     # Fixed-size chunking (original behavior)
-    chunks = []
+    chunks: list[str] = []
     i = 0
     step = max(1, size - overlap)
     while i < len(text):
@@ -499,9 +513,9 @@ def _html_to_text(path: str) -> str:
     # Prefer lxml if available; fall back gracefully
     parser = "lxml"
     try:
-        import lxml as _lxml  # Check availability but don't use directly
+        import lxml  # type: ignore[import-untyped]  # Check availability but don't use directly
 
-        _ = _lxml  # Suppress unused import warning
+        _ = lxml  # Suppress unused import warning
     except ImportError:
         parser = "html.parser"
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -608,7 +622,7 @@ def _ocr_page_tiled(
     full_w = int(rect.width * s)
     full_h = int(rect.height * s)
 
-    texts = []
+    texts: list[str] = []
     # number of tiles in each dimension
     # tile_px is resolved from config above, but add fallback for safety
     if tile_px is None:
@@ -636,12 +650,8 @@ def _ocr_page_tiled(
             clip = fitz.Rect(x0, y0, x1, y1)
 
             try:
-
-                # Explicitly cast to the fitz.Page type to satisfy Pylance
-                typed_page = cast(fitz.Page, page)
-
                 # GRAY, no alpha massively reduces memory (n=1 channel)
-                pix = typed_page.get_pixmap(  # type: ignore
+                pix = page.get_pixmap(
                     matrix=fitz.Matrix(s, s),
                     colorspace=fitz.csGRAY,
                     alpha=False,
@@ -656,7 +666,7 @@ def _ocr_page_tiled(
                     texts.append(txt)
             except MemoryError:
                 # If a tile still fails (rare), try halving tile size once
-                if tile_px is not None and tile_px > 800:
+                if tile_px > 800:
                     return _ocr_page_tiled(
                         ocr, page, dpi, tile_px=tile_px // 2, overlap=overlap
                     )
@@ -730,8 +740,8 @@ def _pdf_page_text_or_ocr(
 
 
 def _extract_from_pdf(path: str, ocr: OCRProcessor) -> str:
-    out = []
-    with fitz.open(path) as doc:  # type: ignore[attr-defined]
+    out: list[str] = []
+    with fitz.open(path) as doc:
         for p in doc:
             try:
                 out.append(_pdf_page_text_or_ocr(p, ocr, doc=doc))
@@ -827,7 +837,7 @@ def _should_skip_file(path: str, ext: str, processed: set[str]) -> tuple[bool, s
     # PDF-specific checks
     if ext == ".pdf":
         try:
-            with fitz.open(path) as doc:  # type: ignore[attr-defined]
+            with fitz.open(path) as doc:
                 if doc.page_count > _config.max_pdf_pages:
                     return True, f"PDF with {doc.page_count} pages"
                 if _config.skip_form_pdfs:
@@ -843,7 +853,7 @@ def _should_skip_file(path: str, ext: str, processed: set[str]) -> tuple[bool, s
     return False, ""  # do not skip
 
 
-def _load_existing_index() -> tuple[faiss.Index | None,list[dict[str, Any]]]:
+def _load_existing_index() -> tuple[faiss.Index | None, list[MetadataDict]]:
     """Load existing FAISS index and metadata if they exist."""
     import faiss
     
@@ -859,15 +869,15 @@ def _load_existing_index() -> tuple[faiss.Index | None,list[dict[str, Any]]]:
 
         # Load metadata from SQLite database
         db: Any = sqlite_utils.Database(str(_config.db_path))
-        metadata = []
+        metadata: list[MetadataDict] = []
         if "chunks" in db.table_names():
             chunks_table: Any = db["chunks"]
-            for row in chunks_table.rows:  # type: ignore
+            for row in chunks_table.rows:
                 metadata.append(
                     {
-                        "source": row["source"],
-                        "chunk_index": row["chunk_index"],
-                        "text": row["text"],
+                        "source": str(row["source"]),
+                        "chunk_index": int(row["chunk_index"]),
+                        "text": str(row["text"]),
                     }
                 )
 
@@ -879,7 +889,7 @@ def _load_existing_index() -> tuple[faiss.Index | None,list[dict[str, Any]]]:
 
         # Set nprobe for IVF indices
         if hasattr(index, "nprobe"):
-            index.nprobe = config.NPROBE  # type: ignore
+            index.nprobe = config.NPROBE
             logger.info(f"🎯 Set IVF nprobe to {config.NPROBE}")
 
         print(
@@ -899,7 +909,7 @@ def _load_processed_files() -> set[str]:
         set[str]: Set of file hashes that have been processed
     """
     assert _config is not None, "_config must be initialized before use"
-    processed_hashes = set()
+    processed_hashes: set[str] = set()
 
     if _config.processed_log and _config.processed_log.exists():
         try:
@@ -930,8 +940,8 @@ def _load_processed_files() -> set[str]:
 
 
 def _detect_stale_documents(
-    processed_files: set[str], current_files:list[Path]
-) ->list[str]:
+    processed_files: set[str], current_files: list[Path]
+) -> list[str]:
     """Detect processed files that no longer exist in the current directory.
 
     Args:
@@ -945,15 +955,13 @@ def _detect_stale_documents(
         return []
 
     # Build current file hash mapping
-    current_hashes = set()
-    current_paths = {}
+    current_hashes: set[str] = set()
 
     for file_path in current_files:
         if file_path.is_file():
             try:
                 file_hash = _calculate_file_hash(str(file_path))
                 current_hashes.add(file_hash)
-                current_paths[file_hash] = str(file_path)
             except (OSError, PermissionError):
                 continue
 
@@ -961,7 +969,7 @@ def _detect_stale_documents(
     stale_hashes = processed_files - current_hashes
 
     # Try to map back to file paths from processed_files.txt
-    stale_paths = []
+    stale_paths: list[str] = []
     if stale_hashes and _config and _config.processed_log:
         try:
             with open(_config.processed_log, "r", encoding="utf-8") as f:
@@ -979,7 +987,7 @@ def _detect_stale_documents(
     return stale_paths
 
 
-def _prompt_user_stale_action(stale_files:list[str]) -> str:
+def _prompt_user_stale_action(stale_files: list[str]) -> str:
     """Prompt user for action when stale documents are detected.
 
     Returns:
@@ -1020,7 +1028,7 @@ def _prompt_user_stale_action(stale_files:list[str]) -> str:
             return "quit"
 
 
-def _clean_stale_entries(stale_files:list[str]) -> None:
+def _clean_stale_entries(stale_files: list[str]) -> None:
     """Remove stale entries from processed files, database, and rebuild FAISS index.
 
     Args:
@@ -1032,8 +1040,7 @@ def _clean_stale_entries(stale_files:list[str]) -> None:
     print(f"🧹 Cleaning {len(stale_files)} stale entries...")
 
     # Build hash set of stale files
-    stale_hashes = set()
-    hash_to_path = {}
+    stale_hashes: set[str] = set()
 
     if _config.processed_log and _config.processed_log.exists():
         try:
@@ -1044,7 +1051,6 @@ def _clean_stale_entries(stale_files:list[str]) -> None:
                         parts = line.split("|", 1)
                         if len(parts) == 2:
                             file_hash, file_path = parts[0].strip(), parts[1].strip()
-                            hash_to_path[file_hash] = file_path
                             if file_path in stale_files:
                                 stale_hashes.add(file_hash)
         except (OSError, UnicodeDecodeError):
@@ -1054,7 +1060,7 @@ def _clean_stale_entries(stale_files:list[str]) -> None:
     if stale_hashes and _config.processed_log:
         try:
             # Read all entries
-            valid_entries = []
+            valid_entries: list[str] = []
             with open(_config.processed_log, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
@@ -1085,7 +1091,7 @@ def _clean_stale_entries(stale_files:list[str]) -> None:
             db = sqlite_utils.Database(_config.db_path)
 
             # Get stale document sources in multiple formats to match database
-            stale_sources = []
+            stale_sources: list[str] = []
             for path in stale_files:
                 # Try different formats: filename only, full path, relative path
                 stale_sources.extend(
@@ -1106,7 +1112,9 @@ def _clean_stale_entries(stale_files:list[str]) -> None:
                 query = f"DELETE FROM chunks WHERE source IN ({placeholders})"
                 db.execute(query, stale_sources)
 
-                deleted_count = db.execute("SELECT changes()").fetchone()[0]
+                cursor: Cursor = db.execute("SELECT changes()")
+                row = cursor.fetchone()
+                deleted_count: int = row[0] if row else 0
                 print(f"   Cleaned database ({deleted_count} chunks removed)")
 
         except Exception as e:
@@ -1123,27 +1131,27 @@ def _clean_stale_entries(stale_files:list[str]) -> None:
 def _scan_and_process_files(
     root_path: Union[str, Path],
     ocr: OCRProcessor,
-    embedder: SentenceTransformer,
+    embedder: EmbeddingModel,
     index: faiss.Index | None,
-    metadata:list[dict[str, Any]],
+    metadata: list[MetadataDict],
     processed: set[str],
     recurse_subdirs: bool = True,
 ) -> ProcessingStats:
     """Scan directory and process all supported files."""
     assert _config is not None, "_config must be initialized before use"
     file_count = 0
-    chunk_total = len(metadata) if metadata else 0
+    chunk_total = len(metadata)
     skipped_already_processed = 0
     skipped_problems = 0
-    skip_reasons = {}
+    skip_reasons: dict[str, int] = {}
 
     if recurse_subdirs:
         # Recursively walk through all subdirectories
-        walker = os.walk(root_path)
+        walker: Iterable[tuple[str, list[str], list[str]]] = os.walk(root_path)
     else:
         # Only process files in the root directory
         try:
-            root_files = [
+            root_files: list[str] = [
                 f
                 for f in os.listdir(root_path)
                 if os.path.isfile(os.path.join(root_path, f))
@@ -1376,7 +1384,7 @@ def build_index(
         print("🔍 Checking for stale document references...")
 
         # Get list of current files in directory (using effective extensions)
-        current_files = []
+        current_files: list[Path] = []
         effective_extensions = _config.get_effective_extensions()
         for ext in effective_extensions:
             # Convert .ext to *.ext for glob pattern
@@ -1387,7 +1395,7 @@ def build_index(
                 current_files.extend(root_path.glob(glob_pattern))
 
         # Filter out files that should be skipped
-        filtered_files = []
+        filtered_files: list[Path] = []
         for file_path in current_files:
             if not any(file_path.match(pattern) for pattern in config.SKIP_FILES):
                 filtered_files.append(file_path)
@@ -1417,9 +1425,10 @@ def build_index(
                     _config.processed_log.unlink()
                     print("   Removed processed files log")
                 # Reload empty processed set
-                processed = set()
+                processed.clear()
                 # Reload empty index and metadata
-                index, metadata = None, []
+                index = None
+                metadata.clear()
             elif user_choice == "clean":
                 print("🧹 User chose clean - removing stale entries")
                 _clean_stale_entries(stale_files)
@@ -1502,9 +1511,9 @@ def build_index(
 def _process_file(
     path: str,
     ocr: OCRProcessor,
-    embedder: SentenceTransformer,
+    embedder: EmbeddingModel,
     index: faiss.Index | None,
-    metadata:list[dict[str, Any]],
+    metadata: list[MetadataDict],
 ) -> ProcessingResult:
     """
     Process a single file: extract text, chunk, embed, and add to FAISS + metadata.
@@ -1530,7 +1539,7 @@ def _process_file(
                 convert_to_numpy=True,
                 normalize_embeddings=True,
             )
-            embs = np.asarray(embs_raw).astype(np.float32)
+            embs = np.asarray(embs_raw, dtype=np.float32).astype(np.float32)
 
             # Clear CUDA cache after encoding
             if torch.cuda.is_available():
@@ -1557,7 +1566,7 @@ def _process_file(
                     convert_to_numpy=True,
                     normalize_embeddings=True,
                 )
-                embs = np.asarray(embs_raw).astype(np.float32)
+                embs = np.asarray(embs_raw, dtype=np.float32).astype(np.float32)
 
                 # Clear CUDA cache after retry
                 if torch.cuda.is_available():
@@ -1567,7 +1576,7 @@ def _process_file(
             return {"index": index, "chunk_count": 0}
 
     # Initialize FAISS if needed (only happens on very first file)
-    if index is None and embs is not None:
+    if index is None:
         dim = embs.shape[1]
         index, actual_type = _create_faiss_index(
             dim, config.INDEX_TYPE, config.NLIST, _gpu_resources
@@ -1583,48 +1592,51 @@ def _process_file(
             else:
                 # Set nprobe for search on successful IVF index
                 if hasattr(index, "nprobe"):
-                    index.nprobe = config.NPROBE  # type: ignore
+                    index.nprobe = config.NPROBE
+
+    assert index is not None
 
     # Add to index (using the previously computed embeddings)
-    if index is not None and embs is not None:
-        # For IVF indices, check if we need retraining
-        if (
-            config.INDEX_TYPE.lower() == "ivf"
-            and hasattr(index, "is_trained")
-            and index.is_trained
-            and _needs_retraining(index, len(embs))
-        ):
-            logger.info("🔄 Significant data growth detected, retraining IVF index...")
-            # Get all existing vectors + new ones for retraining
-            all_vectors = np.vstack([index.reconstruct_n(0, index.ntotal), embs])  # type: ignore
+    if (
+        config.INDEX_TYPE.lower() == "ivf"
+        and hasattr(index, "is_trained")
+        and getattr(index, "is_trained", False)
+        and _needs_retraining(index, len(embs))
+    ):
+        logger.info("🔄 Significant data growth detected, retraining IVF index...")
+        # Get all existing vectors + new ones for retraining
+        existing_vectors = np.zeros((index.ntotal, embs.shape[1]), dtype=np.float32)
+        if index.ntotal > 0:
+            index.reconstruct_n(0, index.ntotal, existing_vectors)
+        all_vectors = np.vstack([existing_vectors, embs])
 
-            # Recreate and retrain index
-            dim = embs.shape[1]
-            new_index, actual_type = _create_faiss_index(
-                dim, config.INDEX_TYPE, config.NLIST, _gpu_resources
-            )
+        # Recreate and retrain index
+        dim = embs.shape[1]
+        new_index, actual_type = _create_faiss_index(
+            dim, config.INDEX_TYPE, config.NLIST, _gpu_resources
+        )
 
-            if actual_type == "ivf":
-                training_success = _train_ivf_index(new_index, all_vectors)
-                if training_success:
-                    if hasattr(new_index, "nprobe"):
-                        new_index.nprobe = config.NPROBE  # type: ignore
-                    # Add all vectors to new index
-                    new_index.add(all_vectors)  # type: ignore
-                    index = new_index
-                    logger.info("✅ IVF index retraining completed")
-                else:
-                    # Retraining failed, fall back to normal addition
-                    logger.info("IVF retraining failed, continuing with existing index")
-                    index.add(embs)  # type: ignore
-            else:
-                # Fallback index created, add all vectors
-                new_index.add(all_vectors)  # type: ignore
+        if actual_type == "ivf":
+            training_success = _train_ivf_index(new_index, all_vectors)
+            if training_success:
+                if hasattr(new_index, "nprobe"):
+                    new_index.nprobe = config.NPROBE
+                # Add all vectors to new index
+                new_index.add(all_vectors)
                 index = new_index
-                logger.info("✅ Switched to flat index with all vectors")
+                logger.info("✅ IVF index retraining completed")
+            else:
+                # Retraining failed, fall back to normal addition
+                logger.info("IVF retraining failed, continuing with existing index")
+                index.add(embs)
         else:
-            # Normal vector addition
-            index.add(embs)  # type: ignore
+            # Fallback index created, add all vectors
+            new_index.add(all_vectors)
+            index = new_index
+            logger.info("✅ Switched to flat index with all vectors")
+    else:
+        # Normal vector addition
+        index.add(embs)
 
     # Add metadata to SQLite database and list
     db: Any = sqlite_utils.Database(str(_config.db_path))
@@ -1638,14 +1650,14 @@ def _process_file(
                 "source": str,
                 "chunk_index": int,
                 "text": str,
-                "file_hash": str,  # type: ignore
-                "created_at": str,  # type: ignore
+                "file_hash": str,
+                "created_at": str,
             },
             pk="id",
-        )  # type: ignore
+        )
         # Create index on source for faster queries
-        chunks_table.create_index(["source"])  # type: ignore
-        chunks_table.create_index(["file_hash"])  # type: ignore
+        chunks_table.create_index(["source"])
+        chunks_table.create_index(["file_hash"])
 
     # Calculate file hash for better deduplication
     file_hash = _calculate_file_hash(path)
@@ -1654,7 +1666,7 @@ def _process_file(
     created_at = datetime.now().isoformat()
 
     # Insert chunks into database and add to metadata list
-    chunk_records = []
+    chunk_records: list[dict[str, str | int]] = []
     for i, ch in enumerate(chunks):
         chunk_data = {
             "source": path,
@@ -1667,14 +1679,15 @@ def _process_file(
         metadata.append({"source": path, "chunk_index": i, "text": ch})
 
     # Batch insert for better performance
-    chunks_table.insert_all(chunk_records)  # type: ignore
+    chunks_table.insert_all(chunk_records)
 
     # Incremental save (move GPU index to CPU for saving if needed)
     import faiss
     
+    assert index is not None
     save_index = index
     # Check if this looks like a GPU index (has device attribute with numeric value)
-    if _gpu_functions_available and index is not None and hasattr(index, "device"):
+    if _gpu_functions_available and hasattr(index, "device"):
         try:
             device_val = getattr(index, "device", -1)
             is_gpu_index = hasattr(device_val, "__ge__") and device_val >= 0
@@ -1705,10 +1718,10 @@ def main() -> None:
     # Ensure UTF-8 output for cross-platform emoji support
     try:
         # Try to reconfigure stdout to UTF-8 if supported
-        if hasattr(sys.stdout, "reconfigure") and callable(
-            getattr(sys.stdout, "reconfigure", None)
-        ):
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
+        stdout = sys.stdout
+        if hasattr(stdout, "reconfigure") and callable(getattr(stdout, "reconfigure", None)):
+            reconfigure_func = getattr(stdout, "reconfigure")
+            reconfigure_func(encoding="utf-8", errors="replace")
     except (AttributeError, OSError, Exception):
         # If reconfigure fails, emojis might not display but won't crash
         pass

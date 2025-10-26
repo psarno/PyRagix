@@ -10,7 +10,7 @@
 # ===============================
 import traceback
 from pathlib import Path
-from typing import Optional, Any, TYPE_CHECKING, TypedDict
+from typing import Any, TYPE_CHECKING, TypedDict
 from contextlib import asynccontextmanager
 
 if TYPE_CHECKING:
@@ -41,6 +41,7 @@ from query_rag import (
     RAGConfig,
     SearchResult,
 )
+from types_models import MetadataDict
 from visualization_utils import create_embedding_visualization
 
 
@@ -49,10 +50,10 @@ from visualization_utils import create_embedding_visualization
 # ===============================
 class RAGSystemState(TypedDict):
     """Type definition for global RAG system state."""
-    index: Optional["faiss.Index"]
-    metadata: Optional[list[dict[str, Any]]]
-    embedder: Optional["SentenceTransformer"]
-    config: Optional[RAGConfig]
+    index: "faiss.Index" | None
+    metadata: list[MetadataDict] | None
+    embedder: "SentenceTransformer" | None
+    config: RAGConfig | None
     loaded: bool
 
 
@@ -63,7 +64,7 @@ class QueryRequest(BaseModel):
     """Request model for RAG queries."""
 
     query: str
-    top_k: Optional[int] = None
+    top_k: int | None = None
     show_sources: bool = True
     debug: bool = False
 
@@ -72,11 +73,11 @@ class QueryResponse(BaseModel):
     """Response model for RAG queries."""
 
     answer: str
-    sources:list[SearchResult]
+    sources: list[SearchResult]
     query: str
     top_k: int
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class HealthResponse(BaseModel):
@@ -96,7 +97,7 @@ class VisualizationRequest(BaseModel):
     method: str = "umap"  # "umap" or "tsne"
     dimensions: int = 2  # 2 or 3
     max_points: int = 1000
-    top_k: Optional[int] = None
+    top_k: int | None = None
 
 
 class EmbeddingPoint(BaseModel):
@@ -105,7 +106,7 @@ class EmbeddingPoint(BaseModel):
     id: int
     x: float
     y: float
-    z: Optional[float] = None
+    z: float | None = None
     source: str
     chunk_idx: int
     score: float
@@ -116,14 +117,14 @@ class EmbeddingPoint(BaseModel):
 class VisualizationResponse(BaseModel):
     """Response model for embedding visualization."""
 
-    points:list[EmbeddingPoint]
+    points: list[EmbeddingPoint]
     query: str
     method: str
     dimensions: int
     total_points: int
     retrieved_count: int
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # ===============================
@@ -326,7 +327,7 @@ def _query_rag_with_sources(
     top_k: int,
     show_sources: bool = True,
     debug: bool = False,
-) -> tuple[Optional[str],list[SearchResult]]:
+) -> tuple[str | None, list[SearchResult]]:
     """Modified version of _query_rag that returns sources separately."""
     from query_rag import _memory_cleanup, _l2_normalize, _generate_answer_with_ollama
     import numpy as np
@@ -435,7 +436,7 @@ async def visualize_embeddings_endpoint(request: VisualizationRequest):
             query_emb_normalized = _l2_normalize(query_emb_array)
 
             # Search FAISS to get retrieved chunks
-            distances, labels = index.search(query_emb_normalized, top_k)  # type: ignore[call-arg]
+            distances, labels = index.search(query_emb_normalized, top_k)
             scores = distances[0].tolist()
             indices = labels[0].tolist()
 

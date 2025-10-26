@@ -15,7 +15,6 @@ import sys
 import traceback
 from pathlib import Path
 from typing import (
-    Optional,
     Any,
     TYPE_CHECKING,
 )
@@ -39,17 +38,17 @@ else:
 import config
 
 # Import our strong types
-from types_models import RAGConfig, SearchResult
+from types_models import RAGConfig, SearchResult, MetadataDict
 
 # Import v2 features (conditionally used based on config)
 from utils.query_expander import expand_query
 from utils.reranker import Reranker
 
 # Global reranker instance (lazy-loaded)
-_reranker: Optional[Reranker] = None
+_reranker: Reranker | None = None
 
 # Global BM25 index instance (lazy-loaded)
-_bm25_index: Optional[Any] = None  # BM25Index type from utils.bm25_index
+_bm25_index: Any | None = None  # BM25Index type from utils.bm25_index
 
 
 def _get_reranker() -> Reranker:
@@ -60,7 +59,7 @@ def _get_reranker() -> Reranker:
     return _reranker
 
 
-def _get_bm25_index() -> Optional[Any]:
+def _get_bm25_index() -> Any | None:
     """Get or load global BM25 index instance.
 
     Returns:
@@ -216,7 +215,7 @@ Response:"""
 
 def _load_rag_system(
     config: RAGConfig,
-) -> tuple[faiss.Index,list[dict[str, Any]], SentenceTransformer]:
+) -> tuple[faiss.Index, list[MetadataDict], SentenceTransformer]:
     """Load the FAISS index and metadata.
 
     Args:
@@ -245,18 +244,18 @@ def _load_rag_system(
         if hasattr(index, "nprobe"):
             # This is an IVF index, set nprobe for search
             nprobe = getattr(config, "NPROBE", 16)  # Default to 16 if not set
-            index.nprobe = nprobe  # type: ignore
+            index.nprobe = nprobe 
             print(f"Set IVF nprobe to {nprobe}")
 
         # Load metadata from database
         db = sqlite_utils.Database(str(config.db_path))
-        metadata = []
+        metadata: list[MetadataDict] = []
         if "chunks" in db.table_names():
             for row in db["chunks"].rows:
                 metadata.append({
-                    "source": row["source"],
-                    "chunk_index": row["chunk_index"],
-                    "text": row["text"]
+                    "source": str(row["source"]),
+                    "chunk_index": int(row["chunk_index"]),
+                    "text": str(row["text"])
                 })
         else:
             raise ValueError("Database exists but contains no chunks table")
@@ -296,13 +295,13 @@ def _load_rag_system(
 def _query_rag(
     query: str,
     index: faiss.Index,
-    metadata:list[dict[str, Any]],
+    metadata: list[MetadataDict],
     embedder: SentenceTransformer,
     config: RAGConfig,
-    top_k: Optional[int] = None,
+    top_k: int | None = None,
     show_sources: bool = True,
     debug: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """Query the RAG system and generate a human-like answer.
 
     Args:
@@ -364,7 +363,7 @@ def _query_rag(
                 query_emb_normalized = _l2_normalize(query_emb_array)
 
                 # Search FAISS - returns (distances, labels)
-                distances, labels = index.search(query_emb_normalized, retrieval_k)  # type: ignore
+                distances, labels = index.search(query_emb_normalized, retrieval_k) 
                 # For cosine similarity (IndexFlatIP), distances are actually scores
                 scores = distances
                 indices = labels
@@ -538,14 +537,10 @@ def _validate_config(config: RAGConfig) -> None:
     if config.request_timeout <= 0:
         raise ValueError("request_timeout must be positive")
 
-    # Validate paths are Path objects
-    if not isinstance(config.index_path, Path):
-        raise ValueError("index_path must be a Path object")
-    if not isinstance(config.db_path, Path):
-        raise ValueError("db_path must be a Path object")
+    # Paths are already Path objects from config
 
 
-def main(config: Optional[RAGConfig] = None) -> None:
+def main(config: RAGConfig | None = None) -> None:
     """Main function to run the RAG query system.
 
     Args:

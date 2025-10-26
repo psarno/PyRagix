@@ -6,8 +6,15 @@ used throughout the RAG system.
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 from pydantic import BaseModel, Field, field_validator
+
+
+class MetadataDict(TypedDict):
+    """Metadata dictionary structure for document chunks."""
+    source: str
+    chunk_index: int
+    text: str
 
 
 class RAGConfig(BaseModel):

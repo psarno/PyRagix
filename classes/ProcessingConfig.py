@@ -13,7 +13,7 @@ class ProcessingConfig:
     """Configuration for document processing and ingestion."""
 
     # Supported file extensions
-    doc_extensions: set[str] = field(default_factory=set)
+    doc_extensions: set[str] = field(default_factory=lambda: set())
     
     # File type filtering (subset of doc_extensions)
     allowed_extensions: Optional[set[str]] = None
@@ -42,7 +42,7 @@ class ProcessingConfig:
     max_pdf_pages: int = 200  # skip PDFs with more pages
     skip_form_pdfs: bool = True  # skip PDFs containing form fields
     skip_files: set[str] = field(
-        default_factory=set
+        default_factory=lambda: set()
     )  # Hard-coded list of files to skip
 
 
@@ -104,7 +104,7 @@ class ProcessingConfig:
         }
         
         # Add leading dots if not present
-        normalized_types = set()
+        normalized_types: set[str] = set()
         for ext in specified_types:
             if not ext.startswith('.'):
                 ext = '.' + ext
