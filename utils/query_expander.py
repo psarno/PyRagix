@@ -78,7 +78,7 @@ Variants:"""
             generated_text = result.get("response", "").strip()
 
             # Parse variants from response
-            variants = []
+            variants: list[str] = []
             for line in generated_text.split("\n"):
                 line = line.strip()
                 # Clean up common LLM artifacts (numbering, bullets)

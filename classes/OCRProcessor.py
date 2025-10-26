@@ -6,17 +6,16 @@
 import gc
 import logging
 import math
+import os
+import sys
 from io import BytesIO
-from typing import Any
+from typing import Any, TYPE_CHECKING, cast
 
 import fitz  # PyMuPDF
 import numpy as np
 import paddle
 from PIL import Image
 from paddleocr import PaddleOCR
-from typing import TYPE_CHECKING
-import os
-import sys
 
 if TYPE_CHECKING:
     from classes.ProcessingConfig import ProcessingConfig
@@ -29,6 +28,8 @@ for sub in ["cudnn", "cublas", "cufft", "curand", "cusolver", "cusparse", "cuda_
 
 # Set up logger
 logger = logging.getLogger(__name__)
+
+ImageInfo = tuple[int, ...]
 
 class OCRProcessor:
     """Handles all OCR operations with PaddleOCR."""
@@ -101,15 +102,14 @@ class OCRProcessor:
         """OCR a page by splitting it into tiles to manage memory usage."""
         if tile_px is None:
             tile_px = self.config.tile_size
-        if overlap is None:
-            overlap = self.config.tile_overlap
+        overlap_value = overlap if overlap is not None else self.config.tile_overlap
 
         rect = page.rect
         s = dpi / 72.0
         full_w = int(rect.width * s)
         full_h = int(rect.height * s)
 
-        texts = []
+        texts: list[str] = []
         # number of tiles in each dimension
         if tile_px is None:
             tile_px = (
@@ -121,7 +121,7 @@ class OCRProcessor:
         # tile size in page coordinates (points)
         tile_w_pts = tile_px / s
         tile_h_pts = tile_px / s
-        ov_pts = overlap / s 
+        ov_pts = overlap_value / s 
 
         for iy in range(ny):
             for ix in range(nx):
@@ -169,7 +169,7 @@ class OCRProcessor:
                     # If a tile still fails (rare), try halving tile size once
                     if tile_px > 800:
                         return self.ocr_page_tiled(
-                            page, dpi, tile_px=tile_px // 2, overlap=overlap
+                            page, dpi, tile_px=tile_px // 2, overlap=overlap_value
                         )
                     else:
                         continue
@@ -181,9 +181,9 @@ class OCRProcessor:
 
     def ocr_embedded_images(self, doc: Any, page: Any) -> str:
         """Extract text from embedded images in PDF page."""
-        out = []
+        out: list[str] = []
         try:
-            imgs = page.get_images(full=True) or []
+            imgs = cast(list[ImageInfo], page.get_images(full=True) or [])
             for xref, *_ in imgs:
                 try:
                     img = doc.extract_image(xref)
@@ -196,7 +196,8 @@ class OCRProcessor:
         except (AttributeError, RuntimeError):
             # PDF processing errors
             pass
-        return "\n".join([t for t in out if t.strip()])
+        filtered_texts = [text for text in out if text.strip()]
+        return "\n".join(filtered_texts)
 
     def extract_from_image(self, path: str) -> str:
         """Extract text from image file using OCR with memory error handling."""

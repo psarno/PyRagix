@@ -1,3 +1,11 @@
+from __future__ import annotations
+from typing import Any, Protocol
+import pickle
+import logging
+from pathlib import Path
+from operator import itemgetter
+from collections.abc import Sequence
+
 """
 BM25 Keyword Search Index Module
 
@@ -16,25 +24,23 @@ Architecture:
 - Integration: scores fused with FAISS scores via weighted average
 """
 
-from typing import Any, TYPE_CHECKING
-import pickle
-import logging
-from pathlib import Path
-from operator import itemgetter
-
-if TYPE_CHECKING:
-    from rank_bm25 import BM25Okapi as BM25OkapiClass
-
 # BM25 import (lazy to avoid startup cost if not enabled)
 try:
     from rank_bm25 import BM25Okapi
 except ImportError:
-    BM25Okapi: type[BM25OkapiClass] | None = None
+    BM25Okapi = None
 
 logger = logging.getLogger(__name__)
 
+FaissResult = dict[str, Any]
+Bm25Result = tuple[int, float]
 
-def _tokenize(text: str) ->list[str]:
+
+class _BM25Scorer(Protocol):
+    def get_scores(self, query: Sequence[str]) -> list[float]: ...
+
+
+def _tokenize(text: str) -> list[str]:
     """Simple tokenizer: lowercase + whitespace split.
 
     Args:
@@ -61,8 +67,8 @@ class BM25Index:
             )
 
         self._corpus = corpus if corpus is not None else []
-        self._tokenized_corpus:list[list[str]] = []
-        self._bm25: Any = None  # BM25Okapi instance or None
+        self._tokenized_corpus: list[list[str]] = []
+        self._bm25: _BM25Scorer | None = None
 
         if self._corpus:
             self._build_index()
@@ -82,7 +88,7 @@ class BM25Index:
 
         logger.info("BM25 index built successfully")
 
-    def search(self, query: str, top_k: int = 10) ->list[tuple[int, float]]:
+    def search(self, query: str, top_k: int = 10) -> list[tuple[int, float]]:
         """Search BM25 index for query.
 
         Args:
@@ -109,11 +115,12 @@ class BM25Index:
         # Get top-k indices sorted by score
         # argsort gives indices in ascending order, so reverse
         import numpy as np
-        top_indices = np.argsort(scores)[::-1][:top_k]
+        sorted_indices = np.argsort(scores)[::-1][:top_k]
+        top_indices: list[int] = [int(idx) for idx in sorted_indices]
 
         # Filter out zero scores (no matches)
         results = [
-            (int(idx), float(scores[idx]))
+            (idx, float(scores[idx]))
             for idx in top_indices
             if scores[idx] > 0
         ]
@@ -135,7 +142,7 @@ class BM25Index:
         return len(self._corpus)
 
 
-def build_bm25_index(texts:list[str]) -> BM25Index:
+def build_bm25_index(texts: list[str]) -> BM25Index:
     """Build BM25 index from list of texts.
 
     Args:
@@ -201,8 +208,8 @@ def load_bm25_index(file_path: Path) -> BM25Index | None:
 
 
 def normalize_bm25_scores(
-    results:list[tuple[int, float]]
-) ->list[tuple[int, float]]:
+    results: list[Bm25Result],
+) -> list[Bm25Result]:
     """Normalize BM25 scores to [0, 1] range using min-max scaling.
 
     BM25 scores are unbounded positive values. For hybrid fusion with FAISS
@@ -217,7 +224,7 @@ def normalize_bm25_scores(
     if not results:
         return []
 
-    scores = [score for _, score in results]
+    scores: list[float] = [score for _, score in results]
     min_score = min(scores)
     max_score = max(scores)
 
@@ -227,8 +234,9 @@ def normalize_bm25_scores(
         return [(idx, 1.0) for idx, _ in results]
 
     # Min-max normalization to [0, 1]
-    normalized = [
-        (idx, (score - min_score) / (max_score - min_score))
+    denominator = max_score - min_score
+    normalized: list[Bm25Result] = [
+        (idx, (score - min_score) / denominator)
         for idx, score in results
     ]
 
@@ -236,10 +244,10 @@ def normalize_bm25_scores(
 
 
 def fuse_scores(
-    faiss_results:list[dict[str, Any]],
-    bm25_results:list[tuple[int, float]],
+    faiss_results: list[FaissResult],
+    bm25_results: list[Bm25Result],
     alpha: float = 0.7,
-) ->list[dict[str, Any]]:
+) -> list[FaissResult]:
     """Fuse FAISS and BM25 scores using weighted average.
 
     Formula: final_score = alpha * faiss_score + (1 - alpha) * bm25_score
@@ -266,14 +274,16 @@ def fuse_scores(
     bm25_normalized = normalize_bm25_scores(bm25_results)
 
     # Create lookup dict for BM25 scores by metadata index
-    bm25_score_map = {idx: score for idx, score in bm25_normalized}
+    bm25_score_map: dict[int, float] = {
+        idx: score for idx, score in bm25_normalized
+    }
 
     # Build fused results
-    fused_results = []
+    fused_results: list[FaissResult] = []
 
-    for faiss_result in faiss_results:
+    for faiss_idx, faiss_result in enumerate(faiss_results):
         # Get FAISS score (already normalized, typically in [0.5, 1.0] for cosine)
-        faiss_score = faiss_result.get("score", 0.0)
+        faiss_score = float(faiss_result.get("score", 0.0))
 
         # Normalize FAISS scores to [0, 1] (assuming cosine similarity range)
         # Cosine similarity for relevant docs is typically [0.5, 1.0]
@@ -285,23 +295,17 @@ def fuse_scores(
         # The challenge: FAISS results come from query_rag's all_results dict
         # which uses metadata indices as keys. We need to reconstruct that mapping.
         # Since we don't have direct access to the metadata index here,
-        # we'll use the chunk_idx field which should be unique per document.
-
-        # For now, we'll iterate through faiss_results and match by position
-        # This assumes faiss_results are already properly indexed
+        # we fall back to positional matching (enumeration index).
         # A more robust solution would pass metadata indices explicitly
 
         # Get BM25 score (default to 0 if not found)
-        # We'll use enumerate index as a proxy for metadata index
-        # This works if faiss_results maintains the original metadata ordering
-        faiss_idx = faiss_results.index(faiss_result)
         bm25_score = bm25_score_map.get(faiss_idx, 0.0)
 
         # Compute fused score
         fused_score = alpha * faiss_score_normalized + (1 - alpha) * bm25_score
 
         # Create fused result
-        fused = faiss_result.copy()
+        fused: FaissResult = faiss_result.copy()
         fused["faiss_score"] = faiss_score
         fused["bm25_score"] = bm25_score
         fused["fused_score"] = fused_score

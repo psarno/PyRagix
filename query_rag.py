@@ -13,17 +13,16 @@ from __version__ import __version__
 import sqlite_utils
 import sys
 import traceback
-from pathlib import Path
-from typing import (
-    Any,
-    TYPE_CHECKING,
-)
 from contextlib import contextmanager
+from pathlib import Path
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any, TYPE_CHECKING, Protocol, cast
 
 # ===============================
 # Third-party Libraries
 # ===============================
 import numpy as np
+import numpy.typing as npt
 import requests
 from sentence_transformers import SentenceTransformer
 
@@ -49,6 +48,18 @@ _reranker: Reranker | None = None
 
 # Global BM25 index instance (lazy-loaded)
 _bm25_index: Any | None = None  # BM25Index type from utils.bm25_index
+
+FloatArray = npt.NDArray[np.float32]
+
+
+class _SentenceEncoder(Protocol):
+    def __call__(
+        self,
+        sentences: Sequence[str],
+        *,
+        convert_to_numpy: bool,
+        normalize_embeddings: bool,
+    ) -> FloatArray: ...
 
 
 def _get_reranker() -> Reranker:
@@ -141,6 +152,21 @@ def _l2_normalize(mat: np.ndarray) -> np.ndarray:
     """
     norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
     return mat / norms
+
+
+def _row_to_metadata(row: Mapping[str, Any]) -> MetadataDict:
+    """Convert a SQLite row to strongly-typed metadata."""
+    return {
+        "source": str(row["source"]),
+        "chunk_index": int(row["chunk_index"]),
+        "text": str(row["text"]),
+    }
+
+
+def _get_sentence_encoder(embedder: SentenceTransformer) -> _SentenceEncoder:
+    """Provide a typed encode callable for the sentence transformer."""
+    encode_callable = getattr(embedder, "encode")
+    return cast(_SentenceEncoder, encode_callable)
 
 
 def _generate_answer_with_ollama(
@@ -251,12 +277,10 @@ def _load_rag_system(
         db = sqlite_utils.Database(str(config.db_path))
         metadata: list[MetadataDict] = []
         if "chunks" in db.table_names():
-            for row in db["chunks"].rows:
-                metadata.append({
-                    "source": str(row["source"]),
-                    "chunk_index": int(row["chunk_index"]),
-                    "text": str(row["text"])
-                })
+            chunks_table = db["chunks"]
+            rows_iter = cast(Iterable[Mapping[str, Any]], chunks_table.rows)
+            for row in rows_iter:
+                metadata.append(_row_to_metadata(row))
         else:
             raise ValueError("Database exists but contains no chunks table")
 
@@ -351,15 +375,16 @@ def _query_rag(
     try:
         # Collect results from all query variants
         all_results: dict[int, SearchResult] = {}  # Use dict to dedupe by index
+        encode_queries = _get_sentence_encoder(embedder)
 
         for query_variant in queries_to_search:
             with _memory_cleanup():
                 # Embed the query variant
-                query_emb = embedder.encode(
+                query_emb: FloatArray = encode_queries(
                     [query_variant], convert_to_numpy=True, normalize_embeddings=False
                 )
                 # Convert to numpy array with proper type
-                query_emb_array = np.asarray(query_emb, dtype=np.float32)
+                query_emb_array: FloatArray = np.asarray(query_emb, dtype=np.float32)
                 query_emb_normalized = _l2_normalize(query_emb_array)
 
                 # Search FAISS - returns (distances, labels)
@@ -369,7 +394,8 @@ def _query_rag(
                 indices = labels
 
             # Collect results from this variant
-            for score, idx in zip(scores[0], indices[0]):
+            for score_raw, idx_raw in zip(scores[0], indices[0]):
+                idx = int(idx_raw)
                 if idx == -1:  # FAISS returns -1 for missing results
                     continue
 
@@ -378,18 +404,19 @@ def _query_rag(
                     continue
 
                 meta = metadata[idx]
+                score = float(score_raw)
 
                 # Keep highest score if we've seen this chunk before
                 if idx not in all_results or score > all_results[idx].score:
                     all_results[idx] = SearchResult(
                         source=meta["source"],
                         chunk_idx=meta["chunk_index"],
-                        score=float(score),
+                        score=score,
                         text=meta["text"],
                     )
 
         # Convert dict to list
-        sources_info = list(all_results.values())
+        sources_info: list[SearchResult] = list(all_results.values())
 
         # Sort by FAISS score initially
         sources_info.sort(key=lambda x: x.score, reverse=True)
@@ -412,7 +439,9 @@ def _query_rag(
                     # Build BM25 score map: metadata_index -> bm25_score
                     from utils.bm25_index import normalize_bm25_scores
                     bm25_normalized = normalize_bm25_scores(bm25_results)
-                    bm25_score_map = {idx: score for idx, score in bm25_normalized}
+                    bm25_score_map: dict[int, float] = {
+                        int(idx): float(score) for idx, score in bm25_normalized
+                    }
 
                     # Fuse scores: need to match FAISS results with BM25 by metadata index
                     # The challenge: sources_info came from all_results dict keyed by idx
@@ -420,12 +449,12 @@ def _query_rag(
 
                     # Rebuild metadata index for each FAISS result
                     alpha = config.hybrid_alpha
-                    fused_results = []
+                    fused_results: list[SearchResult] = []
 
                     for faiss_result in sources_info:
                         # Find this result's metadata index
                         # Match by source + chunk_idx to find metadata index
-                        meta_idx = None
+                        meta_idx: int | None = None
                         for idx, meta in enumerate(metadata):
                             if (meta["source"] == faiss_result.source and
                                 meta["chunk_index"] == faiss_result.chunk_idx):

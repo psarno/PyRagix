@@ -1,3 +1,10 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING, Protocol, Any, cast
+import logging
+from operator import attrgetter
+from collections.abc import Sequence
+from sentence_transformers import CrossEncoder
+
 """
 Cross-Encoder Reranking Module
 
@@ -11,14 +18,16 @@ Typical workflow:
 3. Return top-7 by cross-encoder score for LLM generation
 """
 
-from typing import List, Optional, TYPE_CHECKING
-import logging
-from operator import attrgetter
-from sentence_transformers import CrossEncoder
-import numpy as np
-
 if TYPE_CHECKING:
     from types_models import SearchResult
+
+
+class _CrossEncoder(Protocol):
+    def predict(
+        self,
+        sentences: Sequence[tuple[str, str]],
+        **kwargs: Any,
+    ) -> Sequence[float]: ...
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +42,10 @@ class Reranker:
             model_name: HuggingFace cross-encoder model name
         """
         self.model_name = model_name
-        self._model: Optional[CrossEncoder] = None
+        self._model: _CrossEncoder | None = None
         logger.info(f"Reranker initialized with model: {model_name}")
 
-    def _load_model(self) -> CrossEncoder:
+    def _load_model(self) -> _CrossEncoder:
         """Lazy-load cross-encoder model to save memory.
 
         Returns:
@@ -44,16 +53,17 @@ class Reranker:
         """
         if self._model is None:
             logger.info(f"Loading cross-encoder model: {self.model_name}")
-            self._model = CrossEncoder(self.model_name)
+            model_instance = CrossEncoder(self.model_name)
+            self._model = cast(_CrossEncoder, model_instance)
             logger.info("Cross-encoder model loaded successfully")
         return self._model
 
     def rerank(
         self,
         query: str,
-        results: List[SearchResult],
-        top_k: Optional[int] = None,
-    ) -> List[SearchResult]:
+        results: list[SearchResult],
+        top_k: int | None = None,
+    ) -> list[SearchResult]:
         """Rerank search results using cross-encoder.
 
         Args:
@@ -75,21 +85,19 @@ class Reranker:
             model = self._load_model()
 
             # Create query-document pairs for scoring
-            pairs = [(query, result.text) for result in results]
+            pairs: list[tuple[str, str]] = [(query, result.text) for result in results]
 
             # Score all pairs
             logger.debug(f"Scoring {len(pairs)} query-document pairs")
-            scores = model.predict(pairs)
-
-            # Convert scores to numpy array for easier manipulation
-            scores_array = np.asarray(scores)
+            scores_raw: Sequence[float] = model.predict(pairs)
+            scores = list(scores_raw)
 
             # Attach scores to results
-            reranked_results = []
+            reranked_results: list[SearchResult] = []
             for i, result in enumerate(results):
                 # Create copy to avoid modifying original
                 result_copy = result.model_copy()
-                result_copy.score = float(scores_array[i])  # Update score to rerank score
+                result_copy.score = float(scores[i])  # Update score to rerank score
                 reranked_results.append(result_copy)
 
             # Sort by rerank score (descending)
