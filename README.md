@@ -270,29 +270,6 @@ Core dependencies managed via `pyproject.toml`:
 
 Install with `uv sync` or `pip install -r requirements.txt`.
 
-## Performance Characteristics
-
-Benchmarked on modest hardware (16GB RAM, 6-core CPU, no GPU):
-
-**Ingestion:**
-- PDF processing: ~1-2 pages/second
-- OCR processing: ~0.5-1 pages/second (DPI 150)
-- Embedding: ~100-200 chunks/second (batch size 16)
-- Total throughput: ~500-1000 pages/hour
-
-**Query:**
-- FAISS search: ~10-50ms (IVF index)
-- BM25 search: ~20-50ms
-- Reranking (20 chunks): ~50-150ms
-- Query expansion: ~200-500ms
-- LLM generation: ~2-10 seconds (model dependent)
-- **Total latency**: ~3-12 seconds end-to-end
-
-**Scalability:**
-- Tested with collections up to 100k chunks
-- FAISS IVF scales to millions of vectors
-- Memory footprint: ~50-100MB per 10k chunks
-
 ## Why PyRagix?
 
 **Privacy**: Unlike cloud-based RAG services, PyRagix processes everything locally. Your documents, queries, and generated answers never leave your infrastructure.
@@ -317,7 +294,7 @@ Benchmarked on modest hardware (16GB RAM, 6-core CPU, no GPU):
 
 ## Contributing
 
-Contributions are welcome! PyRagix is built for the community by the community.
+Contributions are welcome.
 
 **Development Setup:**
 ```bash
@@ -341,35 +318,6 @@ PyRagix maintains strict type safety and code quality standards:
 npx pyright
 ```
 
-**Areas for Contribution:**
-- Additional document format support (DOCX, EPUB, etc.)
-- Alternative embedding models
-- Advanced retrieval strategies
-- Performance optimizations
-- Documentation improvements
-- Test coverage expansion
-
-**Pull Request Guidelines:**
-1. Create a descriptive branch name (e.g., `feature/docx-support` or `fix/memory-leak`)
-2. Ensure all type checks pass
-3. Include clear commit messages explaining your changes
-4. Update relevant documentation
-5. Test with real-world documents when possible
-
-## Roadmap
-
-**v0.5 (Planned):**
-- Evaluation framework with golden query sets
-- Contextual embeddings with query/document prefixes
-- Multi-lingual support
-- Document deduplication
-
-**v1.0 (Future):**
-- Distributed deployment support
-- Advanced filtering (date ranges, authors, document types)
-- Graph-based retrieval
-- Fine-tuned retrieval models
-
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
@@ -382,7 +330,5 @@ PyRagix builds on the shoulders of giants:
 - Ollama (Ollama Team)
 - PaddleOCR (PaddlePaddle)
 - LangChain (LangChain AI)
-
-Inspired by production RAG systems discussed in "Production RAG: Processing 5M Documents" and the Hacker News community.
 
 **Built with privacy, performance, and pragmatism in mind.**
