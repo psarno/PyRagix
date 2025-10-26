@@ -8,20 +8,18 @@
 # ===============================
 # Standard Library
 # ===============================
-from typing import List, Dict, Any
+from typing import Any
 
 # ===============================
-# Third-party Libraries  
+# Third-party Libraries
 # ===============================
 import numpy as np
 import faiss
 from sklearn.manifold import TSNE
 import umap
 
-# ===============================  
-# Local Imports
-# ===============================
-from query_rag import _memory_cleanup
+# Note: _memory_cleanup is imported at runtime in _apply_dimensionality_reduction
+# to avoid circular dependency with web_server -> query_rag -> visualization_utils
 
 
 # ===============================
@@ -77,11 +75,14 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> np.
 # ===============================
 def _apply_dimensionality_reduction(
     embeddings: np.ndarray,
-    method: str = "umap", 
+    method: str = "umap",
     dimensions: int = 2,
     random_state: int = 42
 ) -> Any:
     """Apply UMAP or t-SNE dimensionality reduction."""
+    # Import at runtime to avoid circular dependency
+    from query_rag import _memory_cleanup
+
     if method.lower() == "umap":
         reducer = umap.UMAP(
             n_components=dimensions,
@@ -115,13 +116,13 @@ def create_embedding_visualization(
     query: str,
     query_embedding: np.ndarray,
     index: faiss.Index,
-    metadata: List[Dict[str, Any]],
-    retrieved_indices: List[int],
-    scores: List[float],
+    metadata:list[dict[str, Any]],
+    retrieved_indices:list[int],
+    scores:list[float],
     method: str = "umap",
     dimensions: int = 2,
     max_points: int = 1000
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create visualization data for RAG embeddings."""
     try:
         # Extract document embeddings 

@@ -5,7 +5,7 @@
 
 import json
 from pathlib import Path
-from typing import Set, Literal, Dict, Any
+from typing import Literal, Any
 
 # Type definitions
 IndexType = Literal["flat", "ivf_flat", "ivf_pq"]
@@ -51,17 +51,32 @@ _DEFAULT_CONFIG = {
     "TEMPERATURE": 0.1,
     "TOP_P": 0.9,
     "MAX_TOKENS": 500,
+    # Phase 1: Query Expansion (v2)
+    "ENABLE_QUERY_EXPANSION": False,  # Multi-query expansion for improved recall
+    "QUERY_EXPANSION_COUNT": 3,  # Number of query variants to generate
+    # Phase 1: Reranking (v2)
+    "ENABLE_RERANKING": False,  # Cross-encoder reranking for precision
+    "RERANKER_MODEL": "cross-encoder/ms-marco-MiniLM-L-6-v2",  # Cross-encoder model
+    "RERANK_TOP_K": 20,  # Retrieve this many before reranking
+    # Phase 2: Hybrid Search (v2)
+    "ENABLE_HYBRID_SEARCH": False,  # Hybrid FAISS + BM25 keyword search
+    "HYBRID_ALPHA": 0.7,  # Weight for FAISS (0.7 = 70% semantic + 30% keyword)
+    "BM25_INDEX_PATH": "bm25_index.pkl",  # BM25 index file path
+    # Phase 3: Semantic Chunking (v2)
+    "ENABLE_SEMANTIC_CHUNKING": False,  # Sentence-boundary-aware chunking
+    "SEMANTIC_CHUNK_MAX_SIZE": 1600,  # Max characters per chunk (same as current default)
+    "SEMANTIC_CHUNK_OVERLAP": 200,  # Character overlap between chunks
 }
 
 # Settings file path
 SETTINGS_FILE = "settings.json"
 
 
-def _load_settings() -> Dict[str, Any]:
+def _load_settings() -> dict[str, Any]:
     """Load settings from JSON file, creating it with defaults if it doesn't exist.
 
     Returns:
-        Dict[str, Any]: Configuration settings
+        dict[str, Any]: Configuration settings
     """
     settings_path = Path(SETTINGS_FILE)
 
@@ -83,15 +98,11 @@ def _load_settings() -> Dict[str, Any]:
             print(f"Warning: Could not load {SETTINGS_FILE}: {e}")
             print("Using default settings. Please check your settings file.")
             # Return defaults but don't overwrite the existing file
-            defaults = _DEFAULT_CONFIG.copy()
-            defaults["SKIP_FILES"] = set(defaults["SKIP_FILES"])
-            return defaults
+            return _DEFAULT_CONFIG.copy()
     else:
         # File doesn't exist - create it with defaults
         _create_default_settings()
-        defaults = _DEFAULT_CONFIG.copy()
-        defaults["SKIP_FILES"] = set(defaults["SKIP_FILES"])
-        return defaults
+        return _DEFAULT_CONFIG.copy()
 
 
 def _create_default_settings() -> None:
@@ -132,7 +143,7 @@ GPU_DEVICE: int = _settings.get("GPU_DEVICE", 0)
 GPU_MEMORY_FRACTION: float = _settings.get("GPU_MEMORY_FRACTION", 0.8)
 
 
-SKIP_FILES: Set[str] = _settings["SKIP_FILES"]
+SKIP_FILES: set[str] = set(_settings.get("SKIP_FILES", []))
 
 BASE_DPI: int = _settings["BASE_DPI"]
 BATCH_SIZE_RETRY_DIVISOR: int = _settings["BATCH_SIZE_RETRY_DIVISOR"]
@@ -148,6 +159,27 @@ REQUEST_TIMEOUT: int = _settings["REQUEST_TIMEOUT"]
 TEMPERATURE: float = _settings["TEMPERATURE"]
 TOP_P: float = _settings["TOP_P"]
 MAX_TOKENS: int = _settings["MAX_TOKENS"]
+
+# Phase 1: Query Expansion (v2)
+ENABLE_QUERY_EXPANSION: bool = _settings.get("ENABLE_QUERY_EXPANSION", False)
+QUERY_EXPANSION_COUNT: int = _settings.get("QUERY_EXPANSION_COUNT", 3)
+
+# Phase 1: Reranking (v2)
+ENABLE_RERANKING: bool = _settings.get("ENABLE_RERANKING", False)
+RERANKER_MODEL: str = _settings.get(
+    "RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
+)
+RERANK_TOP_K: int = _settings.get("RERANK_TOP_K", 20)
+
+# Phase 2: Hybrid Search (v2)
+ENABLE_HYBRID_SEARCH: bool = _settings.get("ENABLE_HYBRID_SEARCH", False)
+HYBRID_ALPHA: float = _settings.get("HYBRID_ALPHA", 0.7)
+BM25_INDEX_PATH: str = _settings.get("BM25_INDEX_PATH", "bm25_index.pkl")
+
+# Phase 3: Semantic Chunking (v2)
+ENABLE_SEMANTIC_CHUNKING: bool = _settings.get("ENABLE_SEMANTIC_CHUNKING", False)
+SEMANTIC_CHUNK_MAX_SIZE: int = _settings.get("SEMANTIC_CHUNK_MAX_SIZE", 1600)
+SEMANTIC_CHUNK_OVERLAP: int = _settings.get("SEMANTIC_CHUNK_OVERLAP", 200)
 
 
 def validate_config() -> None:
@@ -209,6 +241,70 @@ def validate_config() -> None:
     # Skip files validation
     if not isinstance(SKIP_FILES, set):
         raise ValueError("SKIP_FILES must be a set")
+
+    # Phase 1: Query Expansion validation
+    if not isinstance(ENABLE_QUERY_EXPANSION, bool):
+        raise ValueError(
+            f"ENABLE_QUERY_EXPANSION must be a boolean, got: {ENABLE_QUERY_EXPANSION}"
+        )
+
+    if not isinstance(QUERY_EXPANSION_COUNT, int) or QUERY_EXPANSION_COUNT < 1:
+        raise ValueError(
+            f"QUERY_EXPANSION_COUNT must be a positive integer, got: {QUERY_EXPANSION_COUNT}"
+        )
+
+    # Phase 1: Reranking validation
+    if not isinstance(ENABLE_RERANKING, bool):
+        raise ValueError(
+            f"ENABLE_RERANKING must be a boolean, got: {ENABLE_RERANKING}"
+        )
+
+    if not isinstance(RERANKER_MODEL, str) or not RERANKER_MODEL.strip():
+        raise ValueError(
+            f"RERANKER_MODEL must be a non-empty string, got: {RERANKER_MODEL}"
+        )
+
+    if not isinstance(RERANK_TOP_K, int) or RERANK_TOP_K < 1:
+        raise ValueError(
+            f"RERANK_TOP_K must be a positive integer, got: {RERANK_TOP_K}"
+        )
+
+    # Phase 2: Hybrid Search validation
+    if not isinstance(ENABLE_HYBRID_SEARCH, bool):
+        raise ValueError(
+            f"ENABLE_HYBRID_SEARCH must be a boolean, got: {ENABLE_HYBRID_SEARCH}"
+        )
+
+    if not isinstance(HYBRID_ALPHA, (int, float)) or not (0.0 <= HYBRID_ALPHA <= 1.0):
+        raise ValueError(
+            f"HYBRID_ALPHA must be a float in [0.0, 1.0], got: {HYBRID_ALPHA}"
+        )
+
+    if not isinstance(BM25_INDEX_PATH, str) or not BM25_INDEX_PATH.strip():
+        raise ValueError(
+            f"BM25_INDEX_PATH must be a non-empty string, got: {BM25_INDEX_PATH}"
+        )
+
+    # Phase 3: Semantic Chunking validation
+    if not isinstance(ENABLE_SEMANTIC_CHUNKING, bool):
+        raise ValueError(
+            f"ENABLE_SEMANTIC_CHUNKING must be a boolean, got: {ENABLE_SEMANTIC_CHUNKING}"
+        )
+
+    if not isinstance(SEMANTIC_CHUNK_MAX_SIZE, int) or SEMANTIC_CHUNK_MAX_SIZE < 100:
+        raise ValueError(
+            f"SEMANTIC_CHUNK_MAX_SIZE must be an integer >= 100, got: {SEMANTIC_CHUNK_MAX_SIZE}"
+        )
+
+    if not isinstance(SEMANTIC_CHUNK_OVERLAP, int) or SEMANTIC_CHUNK_OVERLAP < 0:
+        raise ValueError(
+            f"SEMANTIC_CHUNK_OVERLAP must be a non-negative integer, got: {SEMANTIC_CHUNK_OVERLAP}"
+        )
+
+    if SEMANTIC_CHUNK_OVERLAP >= SEMANTIC_CHUNK_MAX_SIZE:
+        raise ValueError(
+            f"SEMANTIC_CHUNK_OVERLAP ({SEMANTIC_CHUNK_OVERLAP}) must be less than SEMANTIC_CHUNK_MAX_SIZE ({SEMANTIC_CHUNK_MAX_SIZE})"
+        )
 
 
 # Validate on import

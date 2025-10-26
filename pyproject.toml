@@ -1,18 +1,18 @@
 [project]
 name = "pyragix"
-version = "0.3.1"
+version = "0.4.0"
 description = "A document ingestion and RAG query system with FAISS indexing and OCR support"
 authors = [{name = "psarno", email = "psarno@users.noreply.github.com"}]
 license = "MIT"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.13"
 dependencies = [
     "torch>=2.0.0",
     "transformers>=4.30.0",
     "sentence-transformers>=2.5.0",
     "huggingface-hub>=0.20.0",
     "tokenizers>=0.21.0",
-    "faiss-cpu>=1.8.0",
+    "faiss-cpu>=1.12.0",
     "paddleocr>=2.8.0",
     "paddlepaddle>=2.6.0",
     "pillow>=10.0.0",
@@ -22,16 +22,21 @@ dependencies = [
     "uvicorn[standard]>=0.24.0",
     "beautifulsoup4>=4.12.0",
     "lxml>=4.9.0",
-    "psutil>=5.9.0"
+    "psutil>=5.9.0",
+    "rank-bm25>=0.2.2",
+    "sqlite-utils>=3.38",
+    "pymupdf>=1.26.5",
+    "langchain-text-splitters>=0.2.0",
+    "pydantic>=2.12.3",
+    "types-requests>=2.32.4.20250913",
+    "scikit-learn>=1.3.0",
+    "umap-learn>=0.5.5",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.13",
 ]
 
 [project.urls]
@@ -47,6 +52,11 @@ pyragix-web = "web_server:main"
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.390",
+]
 
 [tool.setuptools]
 py-modules = ["ingest_folder", "query_rag", "web_server", "config"]

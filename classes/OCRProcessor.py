@@ -14,8 +14,13 @@ import numpy as np
 import paddle
 from PIL import Image
 from paddleocr import PaddleOCR
+from typing import TYPE_CHECKING
+import os
+import sys
 
-import os, sys
+if TYPE_CHECKING:
+    from classes.ProcessingConfig import ProcessingConfig
+
 base = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
 for sub in ["cudnn", "cublas", "cufft", "curand", "cusolver", "cusparse", "cuda_runtime"]:
     bin_path = os.path.join(base, sub, "bin")
@@ -28,7 +33,7 @@ logger = logging.getLogger(__name__)
 class OCRProcessor:
     """Handles all OCR operations with PaddleOCR."""
 
-    def __init__(self, config):
+    def __init__(self, config: "ProcessingConfig"):
         self.config = config
         self.ocr = self._init_ocr()
 
@@ -37,14 +42,15 @@ class OCRProcessor:
         # Suppress PaddleOCR warnings
         logging.getLogger("paddleocr").setLevel(logging.ERROR)
 
-        # Force CPU; angle classifier off (we handle orientation OK in most docs)
-        ocr = PaddleOCR(lang="en", use_angle_cls=False, use_gpu=False)
+        # Angle classifier off (we handle orientation OK in most docs)
+        # Note: use_gpu removed in newer PaddleOCR versions, it auto-detects
+        ocr = PaddleOCR(lang="en", use_angle_cls=False)
 
         try:
             dev = getattr(
                 getattr(paddle, "device", None), "get_device", lambda: "cpu"
             )()
-            logger.info(f"ℹ️ PaddlePaddle: {paddle.__version__} | Device: {dev}")
+            logger.info(f"ℹ️ PaddlePaddle: {getattr(paddle, '__version__', 'unknown')} | Device: {dev}")
         except (AttributeError, TypeError):
             logger.warning("⚠️ Could not print Paddle version/device.")
         return ocr
@@ -70,7 +76,7 @@ class OCRProcessor:
             if rgb_img is not pil_img:
                 rgb_img.close()
             
-            result = self.ocr.ocr(arr, cls=self.config.use_ocr_cls)
+            result = self.ocr.predict(arr)
             
             # Clear array from memory
             del arr
@@ -130,6 +136,7 @@ class OCRProcessor:
                     rect.y1,
                 )
                 clip = fitz.Rect(x0, y0, x1, y1)
+                pix = None  # Initialize to avoid unbound variable
 
                 try:
                     # GRAY, no alpha massively reduces memory (n=1 channel)
@@ -154,7 +161,7 @@ class OCRProcessor:
                     if (iy * nx + ix + 1) % 10 == 0:
                         self._cleanup_memory()
                         
-                except (MemoryError, RuntimeError) as e:
+                except (MemoryError, RuntimeError):
                     # Handle both MemoryError and "could not create a primitive" RuntimeError
                     if pix:
                         pix = None
@@ -206,7 +213,7 @@ class OCRProcessor:
                 arr = np.array(im)
 
             try:
-                result = self.ocr.ocr(arr, cls=False)  # cls=False to save memory
+                result = self.ocr.predict(arr)
                 del arr  # Free array memory immediately
                 if not result or not isinstance(result, list) or not result:
                     return ""
@@ -230,7 +237,7 @@ class OCRProcessor:
                     im = im.convert("RGB")
                     arr = np.array(im)
                 try:
-                    result = self.ocr.ocr(arr, cls=False)
+                    result = self.ocr.predict(arr)
                     del arr  # Free array memory immediately
                     if not result or not isinstance(result, list) or not result:
                         return ""

@@ -10,8 +10,15 @@
 # ===============================
 import traceback
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, Any, TYPE_CHECKING, TypedDict
 from contextlib import asynccontextmanager
+
+if TYPE_CHECKING:
+    import faiss
+    from sentence_transformers import SentenceTransformer
+else:
+    # Import at runtime for actual use
+    import faiss
 
 # ===============================
 # Third-party Libraries
@@ -29,13 +36,24 @@ import uvicorn
 from __version__ import __version__
 from query_rag import (
     _load_rag_system,
-    _query_rag,
     _validate_config,
     DEFAULT_CONFIG,
     RAGConfig,
     SearchResult,
 )
 from visualization_utils import create_embedding_visualization
+
+
+# ===============================
+# Type Definitions
+# ===============================
+class RAGSystemState(TypedDict):
+    """Type definition for global RAG system state."""
+    index: Optional["faiss.Index"]
+    metadata: Optional[list[dict[str, Any]]]
+    embedder: Optional["SentenceTransformer"]
+    config: Optional[RAGConfig]
+    loaded: bool
 
 
 # ===============================
@@ -54,7 +72,7 @@ class QueryResponse(BaseModel):
     """Response model for RAG queries."""
 
     answer: str
-    sources: List[SearchResult]
+    sources:list[SearchResult]
     query: str
     top_k: int
     success: bool
@@ -98,7 +116,7 @@ class EmbeddingPoint(BaseModel):
 class VisualizationResponse(BaseModel):
     """Response model for embedding visualization."""
 
-    points: List[EmbeddingPoint]
+    points:list[EmbeddingPoint]
     query: str
     method: str
     dimensions: int
@@ -111,7 +129,7 @@ class VisualizationResponse(BaseModel):
 # ===============================
 # Global State
 # ===============================
-rag_system = {
+rag_system: RAGSystemState = {
     "index": None,
     "metadata": None,
     "embedder": None,
@@ -129,7 +147,7 @@ async def lifespan(app: FastAPI):
     # Startup
     try:
         print("🚀 Loading RAG system...")
-        config = DEFAULT_CONFIG.copy()
+        config = DEFAULT_CONFIG.model_copy()
         _validate_config(config)
 
         index, metadata, embedder = _load_rag_system(config)
@@ -151,7 +169,11 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("🔄 Shutting down RAG system...")
-    rag_system.clear()
+    rag_system["index"] = None
+    rag_system["metadata"] = None
+    rag_system["embedder"] = None
+    rag_system["config"] = None
+    rag_system["loaded"] = False
 
 
 # ===============================
@@ -208,6 +230,15 @@ async def health_check():
     index = rag_system["index"]
     metadata = rag_system["metadata"]
 
+    if index is None or metadata is None:
+        return HealthResponse(
+            status="error",
+            version=__version__,
+            rag_loaded=False,
+            total_documents=0,
+            index_type="none",
+        )
+
     index_type = "IVF" if hasattr(index, "nprobe") else "Flat"
 
     return HealthResponse(
@@ -231,17 +262,30 @@ async def query_rag_endpoint(request: QueryRequest):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
+    # Get required components from rag_system
+    index = rag_system["index"]
+    metadata = rag_system["metadata"]
+    embedder = rag_system["embedder"]
+    config = rag_system["config"]
+
+    # Type narrowing - these should not be None if loaded=True
+    if index is None or metadata is None or embedder is None or config is None:
+        raise HTTPException(
+            status_code=503,
+            detail="RAG system not properly loaded. Please restart the server.",
+        )
+
     try:
         # Get top_k from request or use default
-        top_k = request.top_k or rag_system["config"]["default_top_k"]
+        top_k = request.top_k or config.default_top_k
 
         # Perform RAG query (modified to return sources)
         answer, sources = _query_rag_with_sources(
             query=request.query,
-            index=rag_system["index"],
-            metadata=rag_system["metadata"],
-            embedder=rag_system["embedder"],
-            config=rag_system["config"],
+            index=index,
+            metadata=metadata,
+            embedder=embedder,
+            config=config,
             top_k=top_k,
             show_sources=request.show_sources,
             debug=request.debug,
@@ -275,14 +319,14 @@ async def query_rag_endpoint(request: QueryRequest):
 
 def _query_rag_with_sources(
     query: str,
-    index,
-    metadata: List[Dict[str, Any]],
-    embedder,
+    index: "faiss.Index",
+    metadata:list[dict[str, Any]],
+    embedder: "SentenceTransformer",
     config: RAGConfig,
     top_k: int,
     show_sources: bool = True,
     debug: bool = False,
-) -> tuple[Optional[str], List[SearchResult]]:
+) -> tuple[Optional[str],list[SearchResult]]:
     """Modified version of _query_rag that returns sources separately."""
     from query_rag import _memory_cleanup, _l2_normalize, _generate_answer_with_ollama
     import numpy as np
@@ -305,8 +349,8 @@ def _query_rag_with_sources(
             indices = labels
 
         # Collect relevant chunks and sources
-        context_chunks: List[str] = []
-        sources_info: List[SearchResult] = []
+        context_chunks:list[str] = []
+        sources_info:list[SearchResult] = []
 
         for score, idx in zip(scores[0], indices[0]):
             if idx == -1 or idx >= len(metadata):
@@ -319,12 +363,12 @@ def _query_rag_with_sources(
 
             context_chunks.append(text)
             sources_info.append(
-                {
-                    "source": source,
-                    "chunk_idx": chunk_idx,
-                    "score": float(score),
-                    "text": text,
-                }
+                SearchResult(
+                    source=source,
+                    chunk_idx=chunk_idx,
+                    score=float(score),
+                    text=text,
+                )
             )
 
         if not context_chunks:
@@ -368,8 +412,15 @@ async def visualize_embeddings_endpoint(request: VisualizationRequest):
         embedder = rag_system["embedder"]
         config = rag_system["config"]
 
+        # Type narrowing - these should not be None if loaded=True
+        if index is None or metadata is None or embedder is None or config is None:
+            raise HTTPException(
+                status_code=503,
+                detail="RAG system not properly loaded. Please restart the server.",
+            )
+
         # Get top_k from request or use default
-        top_k = request.top_k or config["default_top_k"]
+        top_k = request.top_k or config.default_top_k
 
         # First, perform normal RAG query to get retrieved chunks
         from query_rag import _memory_cleanup, _l2_normalize
@@ -384,7 +435,7 @@ async def visualize_embeddings_endpoint(request: VisualizationRequest):
             query_emb_normalized = _l2_normalize(query_emb_array)
 
             # Search FAISS to get retrieved chunks
-            distances, labels = index.search(query_emb_normalized, top_k)
+            distances, labels = index.search(query_emb_normalized, top_k)  # type: ignore[call-arg]
             scores = distances[0].tolist()
             indices = labels[0].tolist()
 

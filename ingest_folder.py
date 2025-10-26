@@ -1,15 +1,22 @@
+from __future__ import annotations
+
 # ======================================
-# Ingestion script (laptop-optimized)
-# - Designed for 16 GB RAM / 6 GB VRAM
-# - Torch threads capped at 4
-# - CUDA alloc split tuned for GTX 1660 Ti
-# - PaddleOCR runs with device fallback
-#
-# If using on more capable hardware:
-#   - Increase thread caps
-#   - Increase batch_size
-#   - Consider FAISS GPU or HNSW index
+# Ingestion script
 # ======================================
+
+# Core dependencies
+import numpy as np
+from PIL import Image
+from bs4 import BeautifulSoup
+
+# Heavy imports with targeted logging suppression
+import torch
+from sentence_transformers import SentenceTransformer
+
+from paddleocr import PaddleOCR
+import fitz  # PyMuPDF
+from classes.ProcessingConfig import ProcessingConfig
+from classes.OCRProcessor import OCRProcessor
 
 # ===============================
 # Standard Library
@@ -26,17 +33,16 @@ import hashlib
 from io import BytesIO
 from pathlib import Path
 from typing import (
-    Optional,
-    Union,
-    Tuple,
-    List,
-    Dict,
-    Set,
     Any,
     Iterator,
     Protocol,
+    Union,
     cast,
+    TYPE_CHECKING,
 )
+
+if TYPE_CHECKING:
+    import faiss
 from typing_extensions import TypedDict
 from contextlib import contextmanager
 import config
@@ -67,29 +73,29 @@ class PDFPage(Protocol):
         alpha: bool = ...,
         clip: Any = ...,
     ) -> PDFPixmap: ...
-    def get_images(self, full: bool = ...) -> List[Tuple[int, ...]]: ...
+    def get_images(self, full: bool = ...) -> list[tuple[int, ...]]: ...
 
 
 class PDFDocument(Protocol):
     page_count: int
 
     def __iter__(self) -> Iterator[PDFPage]: ...
-    def extract_image(self, xref: int) -> Optional[Dict[str, Any]]: ...
-    def widgets(self) -> List[Any]: ...
+    def extract_image(self, xref: int) -> dict[str, Any] | None: ...
+    def widgets(self) -> list[Any]: ...
 
 
 # Type definitions
 class ProcessingStats(TypedDict):
-    index: Optional["faiss.Index"]
+    index: faiss.Index | None
     file_count: int
     chunk_total: int
     skipped_already_processed: int
     skipped_problems: int
-    skip_reasons: Dict[str, int]
+    skip_reasons: dict[str, int]
 
 
 class ProcessingResult(TypedDict):
-    index: Optional["faiss.Index"]
+    index: faiss.Index | None
     chunk_count: int
 
 
@@ -108,29 +114,11 @@ logging.basicConfig(
 )
 
 
-# ===============================
-# Import with suppressed output
-# ===============================
-# Core dependencies
-import numpy as np
-from PIL import Image
-from bs4 import BeautifulSoup
-
-# Heavy imports with targeted logging suppression
-import torch
-from sentence_transformers import SentenceTransformer
-import faiss
-
-from paddleocr import PaddleOCR
-import fitz  # PyMuPDF
-from classes.ProcessingConfig import ProcessingConfig
-from classes.OCRProcessor import OCRProcessor
-
 # Global instances - will be initialized after configuration is loaded
-CONFIG: Optional[ProcessingConfig] = None
-OCR_PROCESSOR: Optional[OCRProcessor] = None
-GPU_RESOURCES: Optional[Any] = None  # faiss.StandardGpuResources if GPU available
-GPU_FUNCTIONS_AVAILABLE: bool = False  # Track if GPU functions exist in faiss module
+_config: ProcessingConfig | None = None
+_ocr_processor: OCRProcessor | None = None
+_gpu_resources: Any = None  # faiss.StandardGpuResources if GPU available
+_gpu_functions_available: bool = False  # Track if GPU functions exist in faiss module
 
 
 def _apply_user_configuration() -> None:
@@ -174,15 +162,14 @@ def _apply_user_configuration() -> None:
     logger.info(
         f"Torch loaded: {torch.__version__}, CUDA available: {torch.cuda.is_available()}"
     )
-    logger.info(f"FAISS version: {faiss.__version__}")
     logger.info(f"Paddle compiled with CUDA: {paddle.device.is_compiled_with_cuda()}")
 
 
 def _initialize_global_instances() -> None:
-    """Initialize global CONFIG, OCR_PROCESSOR, and GPU_RESOURCES instances."""
-    global CONFIG, OCR_PROCESSOR, GPU_RESOURCES
-    CONFIG = ProcessingConfig()
-    OCR_PROCESSOR = OCRProcessor(CONFIG)
+    """Initialize global _config, _ocr_processor, and _gpu_resources instances."""
+    global _config, _ocr_processor, _gpu_resources
+    _config = ProcessingConfig()
+    _ocr_processor = OCRProcessor(_config)
 
     # Initialize GPU resources if enabled
     if config.GPU_ENABLED:
@@ -190,8 +177,8 @@ def _initialize_global_instances() -> None:
         logger.info(f"🎮 GPU detection: {gpu_status}")
 
         if gpu_available:
-            GPU_RESOURCES = _create_gpu_resources()
-            if GPU_RESOURCES is None:
+            _gpu_resources = _create_gpu_resources()
+            if _gpu_resources is None:
                 logger.warning("⚠️  GPU requested but initialization failed, using CPU")
         else:
             logger.info("💻 GPU FAISS not available, using CPU")
@@ -220,8 +207,8 @@ def _cleanup_memory() -> None:
 
 
 def _create_faiss_index(
-    dim: int, index_type: str, nlist: int, gpu_res: Optional[Any] = None
-) -> Tuple["faiss.Index", str]:
+    dim: int, index_type: str, nlist: int, gpu_res: Any = None
+) -> tuple[faiss.Index, str]:
     """Create FAISS index based on configuration.
 
     Args:
@@ -233,6 +220,8 @@ def _create_faiss_index(
     Returns:
         tuple: (faiss.Index, actual_type) where actual_type is 'flat' or 'ivf'
     """
+    import faiss
+    
     # Create CPU index first
     cpu_index = None
     actual_type = "flat"
@@ -267,7 +256,7 @@ def _create_faiss_index(
     return cpu_index, actual_type
 
 
-def _train_ivf_index(index: "faiss.Index", training_data: np.ndarray) -> bool:
+def _train_ivf_index(index: faiss.Index, training_data: np.ndarray) -> bool:
     """Train IVF index with provided embeddings.
 
     Args:
@@ -307,20 +296,22 @@ def _train_ivf_index(index: "faiss.Index", training_data: np.ndarray) -> bool:
         return False
 
 
-def _detect_gpu_faiss() -> Tuple[bool, str]:
+def _detect_gpu_faiss() -> tuple[bool, str]:
     """Detect if GPU FAISS functions are available and working.
 
     Returns:
         tuple: (is_available, status_message)
     """
-    global GPU_FUNCTIONS_AVAILABLE
+    import faiss
+
+    global _gpu_functions_available
 
     # First check if GPU functions exist in the faiss module
     required_attrs = ["StandardGpuResources", "index_cpu_to_gpu", "index_gpu_to_cpu"]
     missing_attrs = [attr for attr in required_attrs if not hasattr(faiss, attr)]
 
     if missing_attrs:
-        GPU_FUNCTIONS_AVAILABLE = False
+        _gpu_functions_available = False
         return (
             False,
             f"GPU functions not available in faiss module (missing: {missing_attrs})",
@@ -334,20 +325,20 @@ def _detect_gpu_faiss() -> Tuple[bool, str]:
             gpu_res, config.GPU_DEVICE, test_index
         )
         del gpu_index, test_index, gpu_res
-        GPU_FUNCTIONS_AVAILABLE = True
+        _gpu_functions_available = True
         return True, f"GPU {config.GPU_DEVICE} available and working"
     except Exception as e:
-        GPU_FUNCTIONS_AVAILABLE = True  # Functions exist but GPU failed
+        _gpu_functions_available = True  # Functions exist but GPU failed
         return False, f"GPU functions available but GPU failed: {str(e)[:100]}"
 
 
-def _create_gpu_resources() -> Optional[Any]:
+def _create_gpu_resources() -> Any:
     """Create GPU resources for FAISS with memory management.
 
     Returns:
         GPU resources object or None if failed
     """
-    if not config.GPU_ENABLED or not GPU_FUNCTIONS_AVAILABLE:
+    if not config.GPU_ENABLED or not _gpu_functions_available:
         return None
 
     try:
@@ -366,7 +357,7 @@ def _create_gpu_resources() -> Optional[Any]:
         return None
 
 
-def _move_index_to_gpu(index: "faiss.Index", gpu_res: Any) -> Optional["faiss.Index"]:
+def _move_index_to_gpu(index: faiss.Index, gpu_res: Any) -> faiss.Index | None:
     """Move CPU index to GPU if possible.
 
     Args:
@@ -376,7 +367,7 @@ def _move_index_to_gpu(index: "faiss.Index", gpu_res: Any) -> Optional["faiss.In
     Returns:
         GPU index or None if failed
     """
-    if not GPU_FUNCTIONS_AVAILABLE:
+    if not _gpu_functions_available:
         return None
 
     try:
@@ -390,7 +381,7 @@ def _move_index_to_gpu(index: "faiss.Index", gpu_res: Any) -> Optional["faiss.In
         return None
 
 
-def _needs_retraining(index: "faiss.Index", new_vector_count: int) -> bool:
+def _needs_retraining(index: faiss.Index, new_vector_count: int) -> bool:
     """Determine if IVF index needs retraining based on new data volume.
 
     Args:
@@ -412,8 +403,8 @@ def _needs_retraining(index: "faiss.Index", new_vector_count: int) -> bool:
 
 
 def _init_embedder() -> SentenceTransformer:
-    assert CONFIG is not None, "CONFIG must be initialized before use"
-    return SentenceTransformer(CONFIG.embed_model)
+    assert _config is not None, "_config must be initialized before use"
+    return SentenceTransformer(_config.embed_model)
 
 
 def _clean_text(s: str) -> str:
@@ -422,19 +413,78 @@ def _clean_text(s: str) -> str:
 
 
 def _chunk_text(
-    text: str, size: Optional[int] = None, overlap: Optional[int] = None
-) -> List[str]:
+    text: str,
+    size: int | None = None,
+    overlap: int | None = None,
+    embedder: Any | None = None,
+) -> list[str]:
+    """Chunk text using either semantic or fixed-size chunking.
+
+    Args:
+        text: Text to chunk
+        size: Max characters per chunk (uses _config.chunk_size if None)
+        overlap: Character overlap between chunks (uses _config.chunk_overlap if None)
+        embedder: SentenceTransformer model for semantic chunking (required if semantic chunking enabled)
+
+    Returns:
+        List of text chunks
+    """
     # Resolve config values if not provided
     if size is None:
-        assert CONFIG is not None, "CONFIG must be initialized before use"
-        size = CONFIG.chunk_size
+        assert _config is not None, "_config must be initialized before use"
+        size = _config.chunk_size
     if overlap is None:
-        assert CONFIG is not None, "CONFIG must be initialized before use"
-        overlap = CONFIG.chunk_overlap
+        assert _config is not None, "_config must be initialized before use"
+        overlap = _config.chunk_overlap
 
     text = text.strip()
     if not text:
         return []
+
+    # Phase 3: Semantic Chunking (v2)
+    if config.ENABLE_SEMANTIC_CHUNKING:
+        try:
+            # Lazy import to avoid dependency issues if feature is disabled
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+            if embedder is None:
+                logging.warning(
+                    "⚠️ Semantic chunking enabled but no embedder provided, falling back to fixed-size chunking"
+                )
+            else:
+                # Use RecursiveCharacterTextSplitter for sentence-boundary-aware splitting
+                # This respects sentence boundaries better than naive character splitting
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=config.SEMANTIC_CHUNK_MAX_SIZE,
+                    chunk_overlap=config.SEMANTIC_CHUNK_OVERLAP,
+                    length_function=len,
+                    separators=[
+                        "\n\n",  # Paragraph breaks
+                        "\n",  # Line breaks
+                        ". ",  # Sentence ends
+                        "? ",
+                        "! ",
+                        "; ",
+                        ", ",  # Clause breaks
+                        " ",  # Word boundaries
+                        "",  # Character-level fallback
+                    ],
+                )
+                chunks = text_splitter.split_text(text)
+                logging.debug(
+                    f"📝 Semantic chunking: {len(chunks)} chunks (max_size={config.SEMANTIC_CHUNK_MAX_SIZE}, overlap={config.SEMANTIC_CHUNK_OVERLAP})"
+                )
+                return chunks
+        except ImportError:
+            logging.warning(
+                "⚠️ langchain-text-splitters not installed. Falling back to fixed-size chunking. Install with: uv add langchain-text-splitters"
+            )
+        except Exception as e:
+            logging.warning(
+                f"⚠️ Semantic chunking failed: {e}. Falling back to fixed-size chunking."
+            )
+
+    # Fixed-size chunking (original behavior)
     chunks = []
     i = 0
     step = max(1, size - overlap)
@@ -463,8 +513,8 @@ def _html_to_text(path: str) -> str:
 
 def _safe_dpi_for_page(
     page: PDFPage,
-    max_pixels: Optional[int] = None,
-    max_side: Optional[int] = None,
+    max_pixels: int | None = None,
+    max_side: int | None = None,
     base_dpi: int = config.BASE_DPI,
 ) -> int:
     """Calculate safe DPI for page rendering to avoid memory issues.
@@ -480,11 +530,11 @@ def _safe_dpi_for_page(
     """
     # Resolve config values if not provided
     if max_pixels is None:
-        assert CONFIG is not None, "CONFIG must be initialized before use"
-        max_pixels = CONFIG.max_pixels
+        assert _config is not None, "_config must be initialized before use"
+        max_pixels = _config.max_pixels
     if max_side is None:
-        assert CONFIG is not None, "CONFIG must be initialized before use"
-        max_side = CONFIG.max_side
+        assert _config is not None, "_config must be initialized before use"
+        max_side = _config.max_side
 
     # page.rect is in points; 72 points = 1 inch
     rect = page.rect
@@ -492,7 +542,7 @@ def _safe_dpi_for_page(
         return 96
 
     # scale from DPI: pixels = points/72 * dpi
-    def px_for(dpi):
+    def px_for(dpi: int) -> tuple[float, float]:
         s = dpi / 72.0
         return rect.width * s, rect.height * s
 
@@ -512,12 +562,12 @@ def _safe_dpi_for_page(
 
 
 def _ocr_pil_image(ocr: PaddleOCR, pil_img: Image.Image) -> str:
-    assert CONFIG is not None, "CONFIG must be initialized before use"
+    assert _config is not None, "_config must be initialized before use"
     try:
         arr = np.array(
             pil_img.convert("RGB"), dtype=np.uint8
         )  # Paddle expects RGB ndarray
-        result = ocr.ocr(arr, cls=CONFIG.use_ocr_cls)
+        result = ocr.predict(arr)
         if not result or not result[0]:
             return ""
         return "\n".join([line[1][0] for line in result[0]])
@@ -530,8 +580,8 @@ def _ocr_page_tiled(
     ocr: PaddleOCR,
     page: fitz.Page,
     dpi: int,
-    tile_px: Optional[int] = None,
-    overlap: Optional[int] = None,
+    tile_px: int | None = None,
+    overlap: int | None = None,
 ) -> str:
     """OCR a page by splitting it into tiles to manage memory usage.
 
@@ -547,11 +597,11 @@ def _ocr_page_tiled(
     """
     # Resolve config values if not provided
     if tile_px is None:
-        assert CONFIG is not None, "CONFIG must be initialized before use"
-        tile_px = CONFIG.tile_size
+        assert _config is not None, "_config must be initialized before use"
+        tile_px = _config.tile_size
     if overlap is None:
-        assert CONFIG is not None, "CONFIG must be initialized before use"
-        overlap = CONFIG.tile_overlap
+        assert _config is not None, "_config must be initialized before use"
+        overlap = _config.tile_overlap
 
     rect = page.rect
     s = dpi / 72.0
@@ -562,7 +612,7 @@ def _ocr_page_tiled(
     # number of tiles in each dimension
     # tile_px is resolved from config above, but add fallback for safety
     if tile_px is None:
-        tile_px = 600  # fallback if CONFIG.tile_size is also None
+        tile_px = 600  # fallback if _config.tile_size is also None
     nx = max(1, math.ceil(full_w / tile_px))
     ny = max(1, math.ceil(full_h / tile_px))
 
@@ -599,7 +649,7 @@ def _ocr_page_tiled(
                 )
 
                 # Avoid pix.samples  → use compressed PNG bytes
-                png_bytes = pix.getPNGdata()
+                png_bytes = pix.tobytes("png")
                 im = Image.open(BytesIO(png_bytes))
                 txt = _ocr_pil_image(ocr, im)
                 if txt.strip():
@@ -620,7 +670,7 @@ def _ocr_page_tiled(
 
 
 def _pdf_page_text_or_ocr(
-    page: Any, ocr: OCRProcessor, doc: Optional[Any] = None
+    page: Any, ocr: OCRProcessor, doc: Any = None
 ) -> str:
     """Extract text from PDF page using native text first, then OCR fallback.
 
@@ -632,7 +682,7 @@ def _pdf_page_text_or_ocr(
     Returns:
         str: Extracted text from the page
     """
-    assert CONFIG is not None, "CONFIG must be initialized before use"
+    assert _config is not None, "_config must be initialized before use"
     # 1) Native text first
     text = page.get_text("text") or ""
     if len(text.strip()) > 20:
@@ -647,8 +697,8 @@ def _pdf_page_text_or_ocr(
     # 3) OCR path with safe DPI, grayscale, tiling
     dpi = _safe_dpi_for_page(
         page,
-        max_pixels=CONFIG.max_pixels,
-        max_side=CONFIG.max_side,
+        max_pixels=_config.max_pixels,
+        max_side=_config.max_side,
         base_dpi=config.BASE_DPI,
     )
 
@@ -658,9 +708,9 @@ def _pdf_page_text_or_ocr(
     h_px = int(rect.height * s)
 
     if (
-        CONFIG.tile_size is not None
-        and w_px <= CONFIG.tile_size
-        and h_px <= CONFIG.tile_size
+        _config.tile_size is not None
+        and w_px <= _config.tile_size
+        and h_px <= _config.tile_size
     ):
         try:
             pix = page.get_pixmap(
@@ -737,7 +787,7 @@ def _calculate_file_hash(path: str) -> str:
         return ""
 
 
-def _should_skip_file(path: str, ext: str, processed: Set[str]) -> Tuple[bool, str]:
+def _should_skip_file(path: str, ext: str, processed: set[str]) -> tuple[bool, str]:
     """Determine if a file should be skipped during processing.
 
     Args:
@@ -748,15 +798,21 @@ def _should_skip_file(path: str, ext: str, processed: Set[str]) -> Tuple[bool, s
     Returns:
         tuple[bool, str]: (should_skip, reason)
     """
-    assert CONFIG is not None, "CONFIG must be initialized before use"
+    assert _config is not None, "_config must be initialized before use"
     # Check if filename is in skip list
     filename = os.path.basename(path)
-    if filename in CONFIG.skip_files:
-        return True, f"file in hard-coded skip list."
+    if filename in _config.skip_files:
+        return True, "file in hard-coded skip list."
 
-    # Unsupported extension
-    if ext not in CONFIG.doc_extensions:
-        return True, f"unsupported file type: {ext}"
+    # Check against effective extensions (filtered or all supported)
+    effective_extensions = _config.get_effective_extensions()
+    if ext not in effective_extensions:
+        if _config.allowed_extensions is not None:
+            # File type filtering is active
+            return True, f"file type not in filter: {ext}"
+        else:
+            # No filtering, so this is truly unsupported
+            return True, f"unsupported file type: {ext}"
 
     # Check if file hash is already processed
     file_hash = _calculate_file_hash(path)
@@ -765,18 +821,18 @@ def _should_skip_file(path: str, ext: str, processed: Set[str]) -> Tuple[bool, s
 
     # File size
     file_size_mb = os.path.getsize(path) / 1024 / 1024
-    if file_size_mb > CONFIG.max_file_mb:
+    if file_size_mb > _config.max_file_mb:
         return True, f"large file ({file_size_mb:.1f} MB)"
 
     # PDF-specific checks
     if ext == ".pdf":
         try:
             with fitz.open(path) as doc:  # type: ignore[attr-defined]
-                if doc.page_count > CONFIG.max_pdf_pages:
+                if doc.page_count > _config.max_pdf_pages:
                     return True, f"PDF with {doc.page_count} pages"
-                if CONFIG.skip_form_pdfs:
+                if _config.skip_form_pdfs:
                     try:
-                        if getattr(doc, 'widgets', lambda: [])():
+                        if getattr(doc, 'widgets', lambda: cast(list[Any], []))():
                             return True, "form-heavy PDF (has interactive fields)"
                     except AttributeError:
                         # Older PyMuPDF versions don't have widgets() method
@@ -787,20 +843,22 @@ def _should_skip_file(path: str, ext: str, processed: Set[str]) -> Tuple[bool, s
     return False, ""  # do not skip
 
 
-def _load_existing_index() -> Tuple[Optional["faiss.Index"], List[Dict[str, Any]]]:
+def _load_existing_index() -> tuple[faiss.Index | None,list[dict[str, Any]]]:
     """Load existing FAISS index and metadata if they exist."""
-    assert CONFIG is not None, "CONFIG must be initialized before use"
+    import faiss
+    
+    assert _config is not None, "_config must be initialized before use"
     if (
-        CONFIG.index_path
-        and CONFIG.index_path.exists()
-        and CONFIG.db_path
-        and CONFIG.db_path.exists()
+        _config.index_path
+        and _config.index_path.exists()
+        and _config.db_path
+        and _config.db_path.exists()
     ):
         print("📂 Loading existing index and metadata...")
-        index = faiss.read_index(str(CONFIG.index_path))
+        index = faiss.read_index(str(_config.index_path))
 
         # Load metadata from SQLite database
-        db: Any = sqlite_utils.Database(str(CONFIG.db_path))
+        db: Any = sqlite_utils.Database(str(_config.db_path))
         metadata = []
         if "chunks" in db.table_names():
             chunks_table: Any = db["chunks"]
@@ -814,8 +872,8 @@ def _load_existing_index() -> Tuple[Optional["faiss.Index"], List[Dict[str, Any]
                 )
 
         # Move to GPU if enabled and available
-        if GPU_RESOURCES is not None and config.GPU_ENABLED:
-            gpu_index = _move_index_to_gpu(index, GPU_RESOURCES)
+        if _gpu_resources is not None and config.GPU_ENABLED:
+            gpu_index = _move_index_to_gpu(index, _gpu_resources)
             if gpu_index is not None:
                 index = gpu_index
 
@@ -832,7 +890,7 @@ def _load_existing_index() -> Tuple[Optional["faiss.Index"], List[Dict[str, Any]
         return None, []
 
 
-def _load_processed_files() -> Set[str]:
+def _load_processed_files() -> set[str]:
     """Load the set of already processed file hashes from the log.
 
     Expected format: "hash|filename"
@@ -840,12 +898,12 @@ def _load_processed_files() -> Set[str]:
     Returns:
         set[str]: Set of file hashes that have been processed
     """
-    assert CONFIG is not None, "CONFIG must be initialized before use"
+    assert _config is not None, "_config must be initialized before use"
     processed_hashes = set()
 
-    if CONFIG.processed_log and CONFIG.processed_log.exists():
+    if _config.processed_log and _config.processed_log.exists():
         try:
-            with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
+            with open(_config.processed_log, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and "|" in line:
@@ -859,10 +917,10 @@ def _load_processed_files() -> Set[str]:
             print("⚠️  Converting processed_files.txt to UTF-8...")
             # Read with system default encoding and rewrite as UTF-8
             with open(
-                CONFIG.processed_log, "r", encoding="cp1252", errors="ignore"
+                _config.processed_log, "r", encoding="cp1252", errors="ignore"
             ) as f:
                 lines = [line.strip() for line in f if line.strip()]
-            with open(CONFIG.processed_log, "w", encoding="utf-8") as f:
+            with open(_config.processed_log, "w", encoding="utf-8") as f:
                 for line in lines:
                     f.write(f"{line}\n")
             # Retry reading
@@ -872,8 +930,8 @@ def _load_processed_files() -> Set[str]:
 
 
 def _detect_stale_documents(
-    processed_files: Set[str], current_files: List[Path]
-) -> List[str]:
+    processed_files: set[str], current_files:list[Path]
+) ->list[str]:
     """Detect processed files that no longer exist in the current directory.
 
     Args:
@@ -904,9 +962,9 @@ def _detect_stale_documents(
 
     # Try to map back to file paths from processed_files.txt
     stale_paths = []
-    if stale_hashes and CONFIG and CONFIG.processed_log:
+    if stale_hashes and _config and _config.processed_log:
         try:
-            with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
+            with open(_config.processed_log, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and "|" in line:
@@ -921,7 +979,7 @@ def _detect_stale_documents(
     return stale_paths
 
 
-def _prompt_user_stale_action(stale_files: List[str]) -> str:
+def _prompt_user_stale_action(stale_files:list[str]) -> str:
     """Prompt user for action when stale documents are detected.
 
     Returns:
@@ -962,13 +1020,13 @@ def _prompt_user_stale_action(stale_files: List[str]) -> str:
             return "quit"
 
 
-def _clean_stale_entries(stale_files: List[str]) -> None:
+def _clean_stale_entries(stale_files:list[str]) -> None:
     """Remove stale entries from processed files, database, and rebuild FAISS index.
 
     Args:
         stale_files: List of file paths that no longer exist
     """
-    if not stale_files or not CONFIG:
+    if not stale_files or not _config:
         return
 
     print(f"🧹 Cleaning {len(stale_files)} stale entries...")
@@ -977,9 +1035,9 @@ def _clean_stale_entries(stale_files: List[str]) -> None:
     stale_hashes = set()
     hash_to_path = {}
 
-    if CONFIG.processed_log and CONFIG.processed_log.exists():
+    if _config.processed_log and _config.processed_log.exists():
         try:
-            with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
+            with open(_config.processed_log, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and "|" in line:
@@ -993,11 +1051,11 @@ def _clean_stale_entries(stale_files: List[str]) -> None:
             print("   Warning: Could not read processed files log")
 
     # Clean processed_files.txt
-    if stale_hashes and CONFIG.processed_log:
+    if stale_hashes and _config.processed_log:
         try:
             # Read all entries
             valid_entries = []
-            with open(CONFIG.processed_log, "r", encoding="utf-8") as f:
+            with open(_config.processed_log, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and "|" in line:
@@ -1008,7 +1066,7 @@ def _clean_stale_entries(stale_files: List[str]) -> None:
                                 valid_entries.append(line)
 
             # Rewrite file with valid entries only
-            with open(CONFIG.processed_log, "w", encoding="utf-8") as f:
+            with open(_config.processed_log, "w", encoding="utf-8") as f:
                 for entry in valid_entries:
                     f.write(f"{entry}\n")
 
@@ -1020,11 +1078,11 @@ def _clean_stale_entries(stale_files: List[str]) -> None:
             print(f"   Warning: Could not clean processed files log: {e}")
 
     # Clean database
-    if CONFIG.db_path and CONFIG.db_path.exists():
+    if _config.db_path and _config.db_path.exists():
         try:
             import sqlite_utils
 
-            db = sqlite_utils.Database(CONFIG.db_path)
+            db = sqlite_utils.Database(_config.db_path)
 
             # Get stale document sources in multiple formats to match database
             stale_sources = []
@@ -1055,8 +1113,8 @@ def _clean_stale_entries(stale_files: List[str]) -> None:
             print(f"   Warning: Could not clean database: {e}")
 
     # Force FAISS index rebuild
-    if CONFIG.index_path and CONFIG.index_path.exists():
-        CONFIG.index_path.unlink()
+    if _config.index_path and _config.index_path.exists():
+        _config.index_path.unlink()
         print("   Removed FAISS index (will be rebuilt)")
 
     print("✅ Stale entries cleaned successfully")
@@ -1066,13 +1124,13 @@ def _scan_and_process_files(
     root_path: Union[str, Path],
     ocr: OCRProcessor,
     embedder: SentenceTransformer,
-    index: Optional["faiss.Index"],
-    metadata: List[Dict[str, Any]],
-    processed: Set[str],
+    index: faiss.Index | None,
+    metadata:list[dict[str, Any]],
+    processed: set[str],
     recurse_subdirs: bool = True,
 ) -> ProcessingStats:
     """Scan directory and process all supported files."""
-    assert CONFIG is not None, "CONFIG must be initialized before use"
+    assert _config is not None, "_config must be initialized before use"
     file_count = 0
     chunk_total = len(metadata) if metadata else 0
     skipped_already_processed = 0
@@ -1112,7 +1170,7 @@ def _scan_and_process_files(
                 if reason == "already processed":
                     skipped_already_processed += 1
                     if (
-                        file_count % CONFIG.top_print_every == 0
+                        file_count % _config.top_print_every == 0
                     ):  # Only log occasionally to reduce noise
                         print(f"✓ Already processed: {fname}")
                 else:
@@ -1133,14 +1191,14 @@ def _scan_and_process_files(
                     chunk_total += chunk_count
 
                 # Log processed file with hash|filename format
-                if CONFIG.processed_log:
+                if _config.processed_log:
                     file_hash = _calculate_file_hash(path)
                     filename = os.path.basename(path)
                     if file_hash:
-                        with open(CONFIG.processed_log, "a", encoding="utf-8") as f:
+                        with open(_config.processed_log, "a", encoding="utf-8") as f:
                             f.write(f"{file_hash}|{filename}\n")
 
-                if file_count % CONFIG.top_print_every == 0:
+                if file_count % _config.top_print_every == 0:
                     print(
                         f"⚙️ Processed {file_count} files | total chunks: {chunk_total} | already done: {skipped_already_processed} | problems: {skipped_problems}"
                     )
@@ -1159,7 +1217,7 @@ def _scan_and_process_files(
                     f.write(f"CRASHED FILE: {path}\n")
                     f.write(f"ERROR TYPE: {error_type}\n")
                     f.write(f"ERROR: {error_msg}\n")
-                    f.write(f"TRACEBACK:\n")
+                    f.write("TRACEBACK:\n")
                     f.write(traceback.format_exc())
                     f.write(f"\n{'='*60}\n")
 
@@ -1185,26 +1243,26 @@ def _print_summary(
     chunk_total: int,
     skipped_already_processed: int,
     skipped_problems: int,
-    skip_reasons: Dict[str, int],
+    skip_reasons: dict[str, int],
 ) -> None:
     """Print processing summary statistics."""
-    assert CONFIG is not None, "CONFIG must be initialized before use"
+    assert _config is not None, "_config must be initialized before use"
     print("-------------------------------------------------")
     print(f"✅ Done. Files processed: {file_count} | Chunks: {chunk_total}")
     print(f"📋 Already processed: {skipped_already_processed}")
     print(f"⚠️  Problem files: {skipped_problems}")
 
     if skip_reasons:
-        print(f"📊 Skip breakdown:")
+        print("📊 Skip breakdown:")
         for reason, count in sorted(skip_reasons.items()):
             print(f"   • {reason}: {count}")
 
-    print(f"📝  Index: {CONFIG.index_path}")
-    print(f"📝 Database: {CONFIG.db_path}")
+    print(f"📝  Index: {_config.index_path}")
+    print(f"📝 Database: {_config.db_path}")
     if config.INDEX_TYPE.lower() == "ivf":
-        print(f"🎯 Index type: IVF (nlist={config.NLIST}, nprobe={config.NPROBE})")
+        print("🎯 Index type: IVF (nlist={config.NLIST}, nprobe={config.NPROBE})")
     else:
-        print(f"🎯 Index type: Flat")
+        print("🎯 Index type: Flat")
     print("   (Re-run this script after adding new documents.)")
 
 
@@ -1212,7 +1270,7 @@ def _print_summary(
 # Main build
 # -----------------------
 def build_index(
-    root_folder: str, fresh_start: bool = False, recurse_subdirs: bool = True
+    root_folder: str, fresh_start: bool = False, recurse_subdirs: bool = True, filetypes: str | None = None
 ) -> None:
     """Main function to build FAISS index from documents in a folder.
 
@@ -1220,9 +1278,10 @@ def build_index(
         root_folder: Root directory containing documents to process
         fresh_start: If True, clears existing index, database, and processed files log
         recurse_subdirs: If True, processes subdirectories recursively; if False, only root folder
+        filetypes: Comma-separated string of file extensions to process (e.g., 'pdf,png,jpg')
     """
     assert (
-        CONFIG is not None and OCR_PROCESSOR is not None
+        _config is not None and _ocr_processor is not None
     ), "Global instances must be initialized before use"
     root_path = Path(root_folder)
 
@@ -1237,17 +1296,17 @@ def build_index(
         print("🗑️  Cleared previous crash log")
 
     print(
-        f"📁 FAISS exists: {CONFIG.index_path.exists() if CONFIG.index_path else False}"
+        f"📁 FAISS exists: {_config.index_path.exists() if _config.index_path else False}"
     )
     print(
-        f"📝 Processed log exists: {CONFIG.processed_log.exists() if CONFIG.processed_log else False}"
+        f"📝 Processed log exists: {_config.processed_log.exists() if _config.processed_log else False}"
     )
     print(f"⚙️ Index type: {config.INDEX_TYPE.upper()}")
     if config.INDEX_TYPE.lower() == "ivf":
         print(f"🎯 IVF settings: nlist={config.NLIST}, nprobe={config.NPROBE}")
     # FAISS GPU status (only show if user explicitly enabled it)
     if config.GPU_ENABLED:
-        gpu_status = "Active" if GPU_RESOURCES is not None else "Failed"
+        gpu_status = "Active" if _gpu_resources is not None else "Failed"
         print(f"🎮 FAISS GPU acceleration: {gpu_status} (device {config.GPU_DEVICE})")
         if gpu_status == "Failed":
             print("   💡 FAISS GPU unavailable - using CPU (embeddings still use GPU)")
@@ -1263,32 +1322,47 @@ def build_index(
     if fresh_start:
         print("🆕 Fresh start requested - clearing all existing files")
         # Clear index
-        if CONFIG.index_path and CONFIG.index_path.exists():
-            CONFIG.index_path.unlink()
+        if _config.index_path and _config.index_path.exists():
+            _config.index_path.unlink()
             print("   Removed existing FAISS index")
         # Clear database
-        if CONFIG.db_path and CONFIG.db_path.exists():
-            CONFIG.db_path.unlink()
+        if _config.db_path and _config.db_path.exists():
+            _config.db_path.unlink()
             print("   Removed existing metadata database")
         # Clear processed files log
-        if CONFIG.processed_log and CONFIG.processed_log.exists():
-            CONFIG.processed_log.unlink()
+        if _config.processed_log and _config.processed_log.exists():
+            _config.processed_log.unlink()
             print("   Removed processed files log")
     elif (
-        CONFIG.processed_log
-        and CONFIG.processed_log.exists()
-        and CONFIG.index_path
-        and CONFIG.index_path.exists()
+        _config.processed_log
+        and _config.processed_log.exists()
+        and _config.index_path
+        and _config.index_path.exists()
     ):
         print("ℹ️ Resuming - keeping existing index")
-    elif CONFIG.index_path and CONFIG.index_path.exists():
-        CONFIG.index_path.unlink()
-        if CONFIG.db_path:
-            CONFIG.db_path.unlink()
+    elif _config.index_path and _config.index_path.exists():
+        _config.index_path.unlink()
+        if _config.db_path:
+            _config.db_path.unlink()
         print("ℹ🧹 Cleared existing index for fresh run")
 
+    # Set up file type filtering if specified
+    if filetypes:
+        try:
+            _config.set_allowed_extensions(filetypes)
+        except ValueError as e:
+            print(f"❌ Invalid file types: {e}")
+            sys.exit(1)
+
+    # Display which file types will be processed
+    effective_extensions = _config.get_effective_extensions()
+    if _config.allowed_extensions is not None:
+        print(f"📄 Processing file types: {', '.join(sorted([ext.lstrip('.') for ext in effective_extensions]))}")
+    else:
+        print(f"📄 Processing all supported file types: {', '.join(sorted([ext.lstrip('.') for ext in effective_extensions]))}")
+
     print(f"🔎 Scanning: {root_path}")
-    ocr = OCR_PROCESSOR
+    ocr = _ocr_processor
     embedder = _init_embedder()
 
     # Load existing index and metadata
@@ -1301,22 +1375,16 @@ def build_index(
     if not fresh_start and processed:
         print("🔍 Checking for stale document references...")
 
-        # Get list of current files in directory
+        # Get list of current files in directory (using effective extensions)
         current_files = []
-        for ext in [
-            "*.pdf",
-            "*.html",
-            "*.htm",
-            "*.png",
-            "*.jpg",
-            "*.jpeg",
-            "*.tiff",
-            "*.bmp",
-        ]:
+        effective_extensions = _config.get_effective_extensions()
+        for ext in effective_extensions:
+            # Convert .ext to *.ext for glob pattern
+            glob_pattern = "*" + ext
             if recurse_subdirs:
-                current_files.extend(root_path.rglob(ext))
+                current_files.extend(root_path.rglob(glob_pattern))
             else:
-                current_files.extend(root_path.glob(ext))
+                current_files.extend(root_path.glob(glob_pattern))
 
         # Filter out files that should be skipped
         filtered_files = []
@@ -1337,16 +1405,16 @@ def build_index(
                 print("🆕 User chose fresh start - clearing all existing files")
                 fresh_start = True
                 # Clear index
-                if CONFIG.index_path and CONFIG.index_path.exists():
-                    CONFIG.index_path.unlink()
+                if _config.index_path and _config.index_path.exists():
+                    _config.index_path.unlink()
                     print("   Removed existing FAISS index")
                 # Clear database
-                if CONFIG.db_path and CONFIG.db_path.exists():
-                    CONFIG.db_path.unlink()
+                if _config.db_path and _config.db_path.exists():
+                    _config.db_path.unlink()
                     print("   Removed existing metadata database")
                 # Clear processed files log
-                if CONFIG.processed_log and CONFIG.processed_log.exists():
-                    CONFIG.processed_log.unlink()
+                if _config.processed_log and _config.processed_log.exists():
+                    _config.processed_log.unlink()
                     print("   Removed processed files log")
                 # Reload empty processed set
                 processed = set()
@@ -1390,6 +1458,34 @@ def build_index(
         print("❌ No text extracted. Nothing indexed.")
         sys.exit(2)
 
+    # Phase 2: Build BM25 index (if enabled)
+    if config.ENABLE_HYBRID_SEARCH:
+        print("🔨 Building BM25 keyword index...")
+        try:
+            from utils.bm25_index import build_bm25_index, save_bm25_index
+
+            # Extract texts from metadata for BM25
+            texts = [meta["text"] for meta in metadata]
+
+            # Build BM25 index
+            bm25_index = build_bm25_index(texts)
+
+            # Save BM25 index
+            bm25_path = Path(config.BM25_INDEX_PATH)
+            save_bm25_index(bm25_index, bm25_path)
+
+            print(f"✅ BM25 index saved: {bm25_path} ({len(bm25_index)} documents)")
+
+        except ImportError:
+            print(
+                "⚠️ BM25 indexing failed: rank-bm25 not installed. "
+                "Run: uv add rank-bm25"
+            )
+        except Exception as e:
+            print(f"⚠️ BM25 indexing failed: {e}")
+            logger.error(f"BM25 index build error: {e}", exc_info=True)
+    else:
+        logger.info("BM25 indexing disabled (ENABLE_HYBRID_SEARCH=False)")
 
     # Print summary
     print("📊 Generating summary...")
@@ -1407,23 +1503,23 @@ def _process_file(
     path: str,
     ocr: OCRProcessor,
     embedder: SentenceTransformer,
-    index: Optional["faiss.Index"],
-    metadata: List[Dict[str, Any]],
+    index: faiss.Index | None,
+    metadata:list[dict[str, Any]],
 ) -> ProcessingResult:
     """
     Process a single file: extract text, chunk, embed, and add to FAISS + metadata.
     Returns (index, chunk_count) - index may be newly created if it was None.
     """
-    assert CONFIG is not None, "CONFIG must be initialized before use"
+    assert _config is not None, "_config must be initialized before use"
     raw_text = _extract_text(path, ocr)
     text = _clean_text(raw_text)
-    chunks = _chunk_text(text)
+    chunks = _chunk_text(text, embedder=embedder)
 
     if not chunks:
         return {"index": index, "chunk_count": 0}  # zero chunks processed
 
     # Embeddings
-    embs: Optional[np.ndarray] = None
+    embs: np.ndarray | None = None
     try:
         with torch.inference_mode(), torch.autocast(
             "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
@@ -1474,7 +1570,7 @@ def _process_file(
     if index is None and embs is not None:
         dim = embs.shape[1]
         index, actual_type = _create_faiss_index(
-            dim, config.INDEX_TYPE, config.NLIST, GPU_RESOURCES
+            dim, config.INDEX_TYPE, config.NLIST, _gpu_resources
         )
 
         # Train IVF index if needed
@@ -1483,7 +1579,7 @@ def _process_file(
             if not training_success:
                 # Fall back to flat index if training failed
                 logger.info("🔄 Creating flat index as fallback...")
-                index, _ = _create_faiss_index(dim, "flat", config.NLIST, GPU_RESOURCES)
+                index, _ = _create_faiss_index(dim, "flat", config.NLIST, _gpu_resources)
             else:
                 # Set nprobe for search on successful IVF index
                 if hasattr(index, "nprobe"):
@@ -1505,7 +1601,7 @@ def _process_file(
             # Recreate and retrain index
             dim = embs.shape[1]
             new_index, actual_type = _create_faiss_index(
-                dim, config.INDEX_TYPE, config.NLIST, GPU_RESOURCES
+                dim, config.INDEX_TYPE, config.NLIST, _gpu_resources
             )
 
             if actual_type == "ivf":
@@ -1531,7 +1627,7 @@ def _process_file(
             index.add(embs)  # type: ignore
 
     # Add metadata to SQLite database and list
-    db: Any = sqlite_utils.Database(str(CONFIG.db_path))
+    db: Any = sqlite_utils.Database(str(_config.db_path))
 
     # Ensure chunks table exists with proper schema
     chunks_table: Any = db["chunks"]
@@ -1574,9 +1670,11 @@ def _process_file(
     chunks_table.insert_all(chunk_records)  # type: ignore
 
     # Incremental save (move GPU index to CPU for saving if needed)
+    import faiss
+    
     save_index = index
     # Check if this looks like a GPU index (has device attribute with numeric value)
-    if GPU_FUNCTIONS_AVAILABLE and index is not None and hasattr(index, "device"):
+    if _gpu_functions_available and index is not None and hasattr(index, "device"):
         try:
             device_val = getattr(index, "device", -1)
             is_gpu_index = hasattr(device_val, "__ge__") and device_val >= 0
@@ -1590,7 +1688,8 @@ def _process_file(
             except Exception as e:
                 logger.warning(f"Failed to move GPU index to CPU for saving: {e}")
 
-    faiss.write_index(save_index, str(CONFIG.index_path))
+    if save_index is not None:
+        faiss.write_index(save_index, str(_config.index_path))
 
     # Clean up memory after processing each file
     _cleanup_memory()
@@ -1633,6 +1732,11 @@ def main() -> None:
         action="store_true",
         help="Only process files in the root folder, skip subdirectories",
     )
+    ap.add_argument(
+        "--filetypes",
+        type=str,
+        help="Comma-separated list of file extensions to process (e.g., 'pdf,png,jpg'). If not specified, all supported types are processed.",
+    )
     args = ap.parse_args()
 
     # Clear screen for cleaner experience
@@ -1652,7 +1756,7 @@ def main() -> None:
 
     _initialize_global_instances()
     build_index(
-        args.folder, fresh_start=args.fresh, recurse_subdirs=not args.no_recurse
+        args.folder, fresh_start=args.fresh, recurse_subdirs=not args.no_recurse, filetypes=args.filetypes
     )
 
 

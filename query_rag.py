@@ -5,6 +5,8 @@
 # - Memory-optimized embedding operations
 # ======================================
 
+from __version__ import __version__
+
 # ===============================
 # Standard Library
 # ===============================
@@ -13,81 +15,105 @@ import sys
 import traceback
 from pathlib import Path
 from typing import (
-    List,
     Optional,
-    Tuple,
-    Dict,
     Any,
-    Protocol,
+    TYPE_CHECKING,
 )
-from typing_extensions import TypedDict
 from contextlib import contextmanager
 
 # ===============================
 # Third-party Libraries
 # ===============================
-import faiss
 import numpy as np
 import requests
 from sentence_transformers import SentenceTransformer
 
+# Type checking imports for heavy dependencies
+if TYPE_CHECKING:
+    import faiss
+else:
+    # Import at runtime
+    import faiss
+
 # Import our config for machine-specific settings
 import config
 
+# Import our strong types
+from types_models import RAGConfig, SearchResult
 
-# ===============================
-# Type Definitions
-# ===============================
-class RAGConfig(TypedDict):
-    """Configuration for RAG system."""
+# Import v2 features (conditionally used based on config)
+from utils.query_expander import expand_query
+from utils.reranker import Reranker
 
-    embed_model: str
-    index_path: Path
-    db_path: Path
-    ollama_base_url: str
-    ollama_model: str
-    default_top_k: int
-    request_timeout: int
-    temperature: float
-    top_p: float
-    max_tokens: int
+# Global reranker instance (lazy-loaded)
+_reranker: Optional[Reranker] = None
+
+# Global BM25 index instance (lazy-loaded)
+_bm25_index: Optional[Any] = None  # BM25Index type from utils.bm25_index
 
 
-class SearchResult(TypedDict):
-    """Single search result from FAISS."""
+def _get_reranker() -> Reranker:
+    """Get or create global reranker instance."""
+    global _reranker
+    if _reranker is None:
+        _reranker = Reranker(model_name=config.RERANKER_MODEL)
+    return _reranker
 
-    source: str
-    chunk_idx: int
-    score: float
-    text: str
 
+def _get_bm25_index() -> Optional[Any]:
+    """Get or load global BM25 index instance.
 
-class OllamaResponse(Protocol):
-    """Protocol for Ollama API response."""
+    Returns:
+        BM25Index instance or None if not available/enabled
+    """
+    global _bm25_index
 
-    status_code: int
+    if not config.ENABLE_HYBRID_SEARCH:
+        return None
 
-    def json(self) -> Dict[str, Any]: ...
+    if _bm25_index is None:
+        try:
+            from utils.bm25_index import load_bm25_index
+            bm25_path = Path(config.BM25_INDEX_PATH)
+            _bm25_index = load_bm25_index(bm25_path)
+            if _bm25_index is None:
+                print(f"⚠️ BM25 index not found at {bm25_path}. Hybrid search disabled.")
+                print("   Run ingestion with ENABLE_HYBRID_SEARCH=true to build index.")
+        except ImportError:
+            print("⚠️ rank-bm25 not installed. Hybrid search disabled.")
+            print("   Run: uv add rank-bm25")
+        except Exception as e:
+            print(f"⚠️ Failed to load BM25 index: {e}")
+
+    return _bm25_index
 
 
 # ===============================
 # Configuration
 # ===============================
-from __version__ import __version__
-
 # Default configuration - uses config.py for machine-specific settings
-DEFAULT_CONFIG: RAGConfig = {
-    "embed_model": config.EMBED_MODEL,
-    "index_path": Path("local_faiss.index"),
-    "db_path": Path("documents.db"),
-    "ollama_base_url": config.OLLAMA_BASE_URL,
-    "ollama_model": config.OLLAMA_MODEL,
-    "default_top_k": config.DEFAULT_TOP_K,
-    "request_timeout": config.REQUEST_TIMEOUT,
-    "temperature": config.TEMPERATURE,
-    "top_p": config.TOP_P,
-    "max_tokens": config.MAX_TOKENS,
-}
+DEFAULT_CONFIG = RAGConfig(
+    embed_model=config.EMBED_MODEL,
+    index_path=Path("local_faiss.index"),
+    db_path=Path("documents.db"),
+    ollama_base_url=config.OLLAMA_BASE_URL,
+    ollama_model=config.OLLAMA_MODEL,
+    default_top_k=config.DEFAULT_TOP_K,
+    request_timeout=config.REQUEST_TIMEOUT,
+    temperature=config.TEMPERATURE,
+    top_p=config.TOP_P,
+    max_tokens=config.MAX_TOKENS,
+    # Phase 1 (v2) settings
+    enable_query_expansion=config.ENABLE_QUERY_EXPANSION,
+    query_expansion_count=config.QUERY_EXPANSION_COUNT,
+    enable_reranking=config.ENABLE_RERANKING,
+    reranker_model=config.RERANKER_MODEL,
+    rerank_top_k=config.RERANK_TOP_K,
+    # Phase 2 (v2) settings
+    enable_hybrid_search=config.ENABLE_HYBRID_SEARCH,
+    hybrid_alpha=config.HYBRID_ALPHA,
+    bm25_index_path=config.BM25_INDEX_PATH,
+)
 
 
 # ===============================
@@ -119,7 +145,7 @@ def _l2_normalize(mat: np.ndarray) -> np.ndarray:
 
 
 def _generate_answer_with_ollama(
-    query: str, context_chunks: List[str], config: RAGConfig
+    query: str, context_chunks:list[str], config: RAGConfig
 ) -> str:
     """Generate a human-like answer using Ollama based on retrieved context.
 
@@ -156,18 +182,18 @@ Response:"""
     try:
         # Call Ollama API
         response = requests.post(
-            f"{config['ollama_base_url']}/api/generate",
+            f"{config.ollama_base_url}/api/generate",
             json={
-                "model": config["ollama_model"],
+                "model": config.ollama_model,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": config["temperature"],
-                    "top_p": config["top_p"],
-                    "num_predict": config["max_tokens"],
+                    "temperature": config.temperature,
+                    "top_p": config.top_p,
+                    "num_predict": config.max_tokens,
                 },
             },
-            timeout=config["request_timeout"],
+            timeout=config.request_timeout,
         )
 
         if response.status_code == 200:
@@ -190,7 +216,7 @@ Response:"""
 
 def _load_rag_system(
     config: RAGConfig,
-) -> Tuple[faiss.Index, List[Dict[str, Any]], SentenceTransformer]:
+) -> tuple[faiss.Index,list[dict[str, Any]], SentenceTransformer]:
     """Load the FAISS index and metadata.
 
     Args:
@@ -206,14 +232,14 @@ def _load_rag_system(
     print("Loading FAISS index and metadata...")
 
     # Validate files exist
-    if not config["index_path"].exists():
-        raise FileNotFoundError(f"FAISS index not found: {config['index_path']}")
-    if not config["db_path"].exists():
-        raise FileNotFoundError(f"Database file not found: {config['db_path']}")
+    if not config.index_path.exists():
+        raise FileNotFoundError(f"FAISS index not found: {config.index_path}")
+    if not config.db_path.exists():
+        raise FileNotFoundError(f"Database file not found: {config.db_path}")
 
     try:
         # Load FAISS index
-        index = faiss.read_index(str(config["index_path"]))
+        index = faiss.read_index(str(config.index_path))
 
         # Configure IVF index if applicable
         if hasattr(index, "nprobe"):
@@ -223,7 +249,7 @@ def _load_rag_system(
             print(f"Set IVF nprobe to {nprobe}")
 
         # Load metadata from database
-        db = sqlite_utils.Database(str(config["db_path"]))
+        db = sqlite_utils.Database(str(config.db_path))
         metadata = []
         if "chunks" in db.table_names():
             for row in db["chunks"].rows:
@@ -236,7 +262,7 @@ def _load_rag_system(
             raise ValueError("Database exists but contains no chunks table")
 
         # Load embedder
-        embedder = SentenceTransformer(config["embed_model"])
+        embedder = SentenceTransformer(config.embed_model)
 
         # Validate data consistency
         if index.ntotal != len(metadata):
@@ -270,7 +296,7 @@ def _load_rag_system(
 def _query_rag(
     query: str,
     index: faiss.Index,
-    metadata: List[Dict[str, Any]],
+    metadata:list[dict[str, Any]],
     embedder: SentenceTransformer,
     config: RAGConfig,
     top_k: Optional[int] = None,
@@ -297,52 +323,160 @@ def _query_rag(
         return None
 
     if top_k is None:
-        top_k = config["default_top_k"]
+        top_k = config.default_top_k
 
     print(f"\nQuery: {query}")
 
+    # Phase 1 Feature: Multi-Query Expansion
+    queries_to_search = [query]
+    if config.enable_query_expansion:
+        print("🔄 Expanding query into multiple variants...")
+        import config as cfg_module
+        queries_to_search = expand_query(
+            query,
+            cfg_module.OLLAMA_BASE_URL,
+            cfg_module.OLLAMA_MODEL,
+            num_variants=cfg_module.QUERY_EXPANSION_COUNT,
+            timeout=30,
+        )
+        if len(queries_to_search) > 1:
+            print(f"   Generated {len(queries_to_search)} query variants:")
+            for i, q in enumerate(queries_to_search):
+                print(f"   {i+1}. {q}")
+
+    # Determine retrieval count based on reranking
+    enable_reranking = config.enable_reranking
+    import config as cfg_module
+    retrieval_k = cfg_module.RERANK_TOP_K if enable_reranking else top_k
+
     try:
-        with _memory_cleanup():
-            # Embed the query
-            query_emb = embedder.encode(
-                [query], convert_to_numpy=True, normalize_embeddings=False
-            )
-            # Convert to numpy array with proper type
-            query_emb_array = np.asarray(query_emb, dtype=np.float32)
-            query_emb_normalized = _l2_normalize(query_emb_array)
+        # Collect results from all query variants
+        all_results: dict[int, SearchResult] = {}  # Use dict to dedupe by index
 
-            # Search FAISS - returns (distances, labels)
-            distances, labels = index.search(query_emb_normalized, top_k)  # type: ignore
-            # For cosine similarity (IndexFlatIP), distances are actually scores
-            scores = distances
-            indices = labels
+        for query_variant in queries_to_search:
+            with _memory_cleanup():
+                # Embed the query variant
+                query_emb = embedder.encode(
+                    [query_variant], convert_to_numpy=True, normalize_embeddings=False
+                )
+                # Convert to numpy array with proper type
+                query_emb_array = np.asarray(query_emb, dtype=np.float32)
+                query_emb_normalized = _l2_normalize(query_emb_array)
 
-        # Collect relevant chunks
-        context_chunks: List[str] = []
-        sources_info: List[SearchResult] = []
+                # Search FAISS - returns (distances, labels)
+                distances, labels = index.search(query_emb_normalized, retrieval_k)  # type: ignore
+                # For cosine similarity (IndexFlatIP), distances are actually scores
+                scores = distances
+                indices = labels
 
-        for score, idx in zip(scores[0], indices[0]):
-            if idx == -1:  # FAISS returns -1 for missing results
-                continue
+            # Collect results from this variant
+            for score, idx in zip(scores[0], indices[0]):
+                if idx == -1:  # FAISS returns -1 for missing results
+                    continue
 
-            if idx >= len(metadata):
-                print(f"⚠️ Invalid index {idx} (metadata has {len(metadata)} entries)")
-                continue
+                if idx >= len(metadata):
+                    print(f"⚠️ Invalid index {idx} (metadata has {len(metadata)} entries)")
+                    continue
 
-            meta = metadata[idx]
-            source = meta["source"]
-            chunk_idx = meta["chunk_index"]
-            text = meta["text"]
+                meta = metadata[idx]
 
-            context_chunks.append(text)
-            sources_info.append(
-                {
-                    "source": source,
-                    "chunk_idx": chunk_idx,
-                    "score": float(score),
-                    "text": text,
-                }
-            )
+                # Keep highest score if we've seen this chunk before
+                if idx not in all_results or score > all_results[idx].score:
+                    all_results[idx] = SearchResult(
+                        source=meta["source"],
+                        chunk_idx=meta["chunk_index"],
+                        score=float(score),
+                        text=meta["text"],
+                    )
+
+        # Convert dict to list
+        sources_info = list(all_results.values())
+
+        # Sort by FAISS score initially
+        sources_info.sort(key=lambda x: x.score, reverse=True)
+
+        if debug and config.enable_query_expansion and len(queries_to_search) > 1:
+            print(f"\n📊 Retrieved {len(sources_info)} unique chunks from all variants")
+
+        # Phase 2 Feature: Hybrid BM25 + FAISS Score Fusion
+        if config.enable_hybrid_search:
+            bm25_index = _get_bm25_index()
+            if bm25_index is not None:
+                print("🔀 Fusing FAISS semantic scores with BM25 keyword scores...")
+                try:
+                    # Query BM25 index (use original query, not variants)
+                    bm25_results = bm25_index.search(query, top_k=retrieval_k)
+
+                    if debug:
+                        print(f"   BM25 returned {len(bm25_results)} keyword matches")
+
+                    # Build BM25 score map: metadata_index -> bm25_score
+                    from utils.bm25_index import normalize_bm25_scores
+                    bm25_normalized = normalize_bm25_scores(bm25_results)
+                    bm25_score_map = {idx: score for idx, score in bm25_normalized}
+
+                    # Fuse scores: need to match FAISS results with BM25 by metadata index
+                    # The challenge: sources_info came from all_results dict keyed by idx
+                    # We need to rebuild that mapping
+
+                    # Rebuild metadata index for each FAISS result
+                    alpha = config.hybrid_alpha
+                    fused_results = []
+
+                    for faiss_result in sources_info:
+                        # Find this result's metadata index
+                        # Match by source + chunk_idx to find metadata index
+                        meta_idx = None
+                        for idx, meta in enumerate(metadata):
+                            if (meta["source"] == faiss_result.source and
+                                meta["chunk_index"] == faiss_result.chunk_idx):
+                                meta_idx = idx
+                                break
+
+                        # Get scores
+                        faiss_score = faiss_result.score
+                        # Normalize FAISS cosine similarity [0.5, 1.0] → [0.0, 1.0]
+                        faiss_normalized = max(0.0, min(1.0, (faiss_score - 0.5) * 2.0))
+
+                        bm25_score = bm25_score_map.get(meta_idx, 0.0) if meta_idx is not None else 0.0
+
+                        # Fuse scores
+                        fused_score = alpha * faiss_normalized + (1 - alpha) * bm25_score
+
+                        # Create fused result - copy and update scores
+                        fused = faiss_result.model_copy()
+                        fused.faiss_score = faiss_score
+                        fused.bm25_score = bm25_score
+                        fused.fused_score = fused_score
+                        fused.score = fused_score
+
+                        fused_results.append(fused)
+
+                    # Sort by fused score
+                    def _get_fused_score(result: SearchResult) -> float:
+                        return result.fused_score if result.fused_score is not None else 0.0
+
+                    fused_results.sort(key=_get_fused_score, reverse=True)
+                    sources_info = fused_results
+
+                    if debug:
+                        print(f"   Fused with alpha={alpha} (semantic={alpha}, keyword={1-alpha})")
+
+                except Exception as e:
+                    print(f"⚠️ Hybrid fusion failed: {e}, using FAISS-only results")
+                    import logging
+                    logging.getLogger(__name__).error(f"Hybrid fusion error: {e}", exc_info=True)
+
+        # Phase 1 Feature: Cross-Encoder Reranking
+        if enable_reranking and sources_info:
+            print(f"🎯 Reranking top {len(sources_info)} results...")
+            reranker = _get_reranker()
+            sources_info = reranker.rerank(query, sources_info, top_k=top_k)
+            if debug:
+                print(f"   After reranking, using top {len(sources_info)} results")
+
+        # Extract context chunks for LLM
+        context_chunks = [result.text for result in sources_info]
 
         if not context_chunks:
             print("\nNo relevant documents found.")
@@ -368,9 +502,9 @@ def _query_rag(
         if show_sources:
             print("\nSources:")
             for i, info in enumerate(sources_info):
-                source_path = Path(info["source"])
+                source_path = Path(info.source)
                 print(
-                    f"{i+1}. {source_path.name} (chunk {info['chunk_idx']}, score: {info['score']:.3f})"
+                    f"{i+1}. {source_path.name} (chunk {info.chunk_idx}, score: {info.score:.3f})"
                 )
             print("-" * 60)
 
@@ -391,31 +525,24 @@ def _validate_config(config: RAGConfig) -> None:
 
     Raises:
         ValueError: If configuration is invalid
+
+    Note:
+        With Pydantic models, most validation is automatic.
+        This function provides additional runtime checks.
     """
-    required_keys = [
-        "embed_model",
-        "index_path",
-        "db_path",
-        "ollama_base_url",
-        "ollama_model",
-        "default_top_k",
-        "request_timeout",
-    ]
-
-    for key in required_keys:
-        if key not in config:
-            raise ValueError(f"Missing required config key: {key}")
-
-    if config["default_top_k"] <= 0:
+    # Pydantic already validates types and constraints
+    # Additional validations can be added here if needed
+    if config.default_top_k <= 0:
         raise ValueError("default_top_k must be positive")
 
-    if config["request_timeout"] <= 0:
+    if config.request_timeout <= 0:
         raise ValueError("request_timeout must be positive")
 
     # Validate paths are Path objects
-    for path_key in ["index_path", "db_path"]:
-        if not isinstance(config[path_key], Path):
-            raise ValueError(f"{path_key} must be a Path object")
+    if not isinstance(config.index_path, Path):
+        raise ValueError("index_path must be a Path object")
+    if not isinstance(config.db_path, Path):
+        raise ValueError("db_path must be a Path object")
 
 
 def main(config: Optional[RAGConfig] = None) -> None:
@@ -425,7 +552,7 @@ def main(config: Optional[RAGConfig] = None) -> None:
         config: Optional RAG configuration. Uses defaults if not provided.
     """
     if config is None:
-        config = DEFAULT_CONFIG.copy()
+        config = DEFAULT_CONFIG.model_copy()
 
     try:
         _validate_config(config)

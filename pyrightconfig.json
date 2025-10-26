@@ -1,0 +1,38 @@
+{
+  "include": [
+    "**/*.py"
+  ],
+  "exclude": [
+    "**/.venv",
+    "**/__pycache__",
+    "**/*.egg-info",
+    "**/dist",
+    ".pytest_cache",
+    ".ruff_cache"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": [
+    "."
+  ],
+  "stubPath": "typings",
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "strict",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": true,
+  "reportUnusedImport": true,
+  "reportUnusedVariable": true,
+  "reportUndefinedVariable": true,
+  "reportUnnecessaryTypeIgnoreComment": true,
+  "reportPrivateUsage": false,
+  "useLibraryCodeForTypes": true,
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "pythonVersion": "3.13",
+      "extraPaths": [
+        "."
+      ]
+    }
+  ]
+}
