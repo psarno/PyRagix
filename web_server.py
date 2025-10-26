@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import traceback
 from pathlib import Path
-from typing import Any, TypedDict, Protocol, Sequence, cast
+from typing import Any, TypedDict, Sequence
 from contextlib import asynccontextmanager
 
 # ===============================
@@ -31,14 +31,11 @@ import uvicorn
 # Local Imports
 # ===============================
 from __version__ import __version__
-from query_rag import (
-    _load_rag_system,
-    _validate_config,
-    DEFAULT_CONFIG,
-    RAGConfig,
-    SearchResult,
-)
-from types_models import MetadataDict
+from rag.configuration import DEFAULT_CONFIG, validate_config
+from rag.embeddings import get_sentence_encoder, l2_normalize, memory_cleanup
+from rag.loader import load_rag_system
+from rag.llm import generate_answer_with_ollama
+from types_models import MetadataDict, RAGConfig, SearchResult
 from visualization_utils import create_embedding_visualization
 
 
@@ -124,16 +121,6 @@ class VisualizationResponse(BaseModel):
     error: str | None = None
 
 
-class _SentenceEncoder(Protocol):
-    def __call__(
-        self,
-        sentences: Sequence[str],
-        *,
-        convert_to_numpy: bool,
-        normalize_embeddings: bool,
-    ) -> Any: ...
-
-
 # ===============================
 # Global State
 # ===============================
@@ -144,13 +131,6 @@ rag_system: RAGSystemState = {
     "config": None,
     "loaded": False,
 }
-
-
-def _get_sentence_encoder(embedder: "SentenceTransformer") -> _SentenceEncoder:
-    encode_callable = getattr(embedder, "encode")
-    return cast(_SentenceEncoder, encode_callable)
-
-
 # ===============================
 # Startup/Shutdown Handlers
 # ===============================
@@ -161,9 +141,9 @@ async def lifespan(app: FastAPI):
     try:
         print("🚀 Loading RAG system...")
         config = DEFAULT_CONFIG.model_copy()
-        _validate_config(config)
+        validate_config(config)
 
-        index, metadata, embedder = _load_rag_system(config)
+        index, metadata, embedder = load_rag_system(config)
 
         rag_system["index"] = index
         rag_system["metadata"] = metadata
@@ -341,22 +321,21 @@ def _query_rag_with_sources(
     debug: bool = False,
 ) -> tuple[str | None, list[SearchResult]]:
     """Modified version of _query_rag that returns sources separately."""
-    from query_rag import _memory_cleanup, _l2_normalize, _generate_answer_with_ollama
     import numpy as np
 
     if not query.strip():
         return None, []
 
     try:
-        encode_queries = _get_sentence_encoder(embedder)
+        encode_queries = get_sentence_encoder(embedder)
 
-        with _memory_cleanup():
+        with memory_cleanup():
             # Embed the query
             query_emb = encode_queries(
                 [query], convert_to_numpy=True, normalize_embeddings=False
             )
             query_emb_array = np.asarray(query_emb, dtype=np.float32)
-            query_emb_normalized = _l2_normalize(query_emb_array)
+            query_emb_normalized = l2_normalize(query_emb_array)
 
             # Search FAISS
             distances, labels = index.search(query_emb_normalized, top_k)
@@ -391,7 +370,7 @@ def _query_rag_with_sources(
             return None, []
 
         # Generate answer using Ollama
-        answer = _generate_answer_with_ollama(query, context_chunks, config)
+        answer = generate_answer_with_ollama(query, context_chunks, config)
 
         return answer, sources_info
 
@@ -439,18 +418,17 @@ async def visualize_embeddings_endpoint(request: VisualizationRequest):
         top_k = request.top_k or config.default_top_k
 
         # First, perform normal RAG query to get retrieved chunks
-        from query_rag import _memory_cleanup, _l2_normalize
         import numpy as np
 
-        encode_queries = _get_sentence_encoder(embedder)
+        encode_queries = get_sentence_encoder(embedder)
 
-        with _memory_cleanup():
+        with memory_cleanup():
             # Embed the query
             query_emb = encode_queries(
                 [request.query], convert_to_numpy=True, normalize_embeddings=False
             )
             query_emb_array = np.asarray(query_emb, dtype=np.float32)
-            query_emb_normalized = _l2_normalize(query_emb_array)
+            query_emb_normalized = l2_normalize(query_emb_array)
 
             # Search FAISS to get retrieved chunks
             distances, labels = index.search(query_emb_normalized, top_k)

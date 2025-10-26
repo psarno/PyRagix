@@ -20,15 +20,13 @@ import numpy.typing as npt
 import faiss
 from sklearn.manifold import TSNE
 import umap
+
+from rag.embeddings import memory_cleanup
 from types_models import MetadataDict
 
 PointDict = dict[str, Any]
 FloatArray = npt.NDArray[np.float32]
 EmbeddingArray = npt.NDArray[np.floating[Any]]
-
-# Note: _memory_cleanup is imported at runtime in _apply_dimensionality_reduction
-# to avoid circular dependency with web_server -> query_rag -> visualization_utils
-
 
 # ===============================
 # FAISS Embedding Extraction
@@ -91,8 +89,6 @@ def _apply_dimensionality_reduction(
     random_state: int = 42
 ) -> EmbeddingArray:
     """Apply UMAP or t-SNE dimensionality reduction."""
-    # Import at runtime to avoid circular dependency
-    from query_rag import _memory_cleanup
 
     if method.lower() == "umap":
         reducer = umap.UMAP(
@@ -113,7 +109,7 @@ def _apply_dimensionality_reduction(
         raise ValueError(f"Unsupported method: {method}")
     
     try:
-        with _memory_cleanup():
+        with memory_cleanup():
             return reducer.fit_transform(embeddings)
     except Exception as e:
         print(f"❌ Error in {method}: {e}")
