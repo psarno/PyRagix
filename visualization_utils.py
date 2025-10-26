@@ -8,15 +8,23 @@
 # ===============================
 # Standard Library
 # ===============================
-from typing import Any
+from __future__ import annotations
+
+from typing import Any, Sequence
 
 # ===============================
 # Third-party Libraries
 # ===============================
 import numpy as np
+import numpy.typing as npt
 import faiss
 from sklearn.manifold import TSNE
 import umap
+from types_models import MetadataDict
+
+PointDict = dict[str, Any]
+FloatArray = npt.NDArray[np.float32]
+EmbeddingArray = npt.NDArray[np.floating[Any]]
 
 # Note: _memory_cleanup is imported at runtime in _apply_dimensionality_reduction
 # to avoid circular dependency with web_server -> query_rag -> visualization_utils
@@ -25,7 +33,7 @@ import umap
 # ===============================
 # FAISS Embedding Extraction
 # ===============================
-def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> np.ndarray:
+def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> FloatArray:
     """Extract embeddings from FAISS index for visualization."""
     try:
         if hasattr(index, 'reconstruct_n'):
@@ -37,31 +45,34 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> np.
             else:
                 indices = np.arange(total_vectors)
             
-            embeddings = []
+            reconstructed_vectors: list[FloatArray] = []
             for i in indices:
                 try:
-                    vector = np.zeros(index.d, dtype=np.float32)
+                    vector: FloatArray = np.zeros(index.d, dtype=np.float32)
                     index.reconstruct(int(i), vector)
-                    embeddings.append(vector)
+                    reconstructed_vectors.append(vector)
                 except RuntimeError:
                     continue
                     
-            if embeddings:
-                return np.array(embeddings)
+            if reconstructed_vectors:
+                stacked_vectors = np.stack(reconstructed_vectors).astype(np.float32)
+                return stacked_vectors
             else:
                 raise ValueError("Could not reconstruct vectors from IVF index")
                 
         elif hasattr(index, 'xb') and getattr(index, 'xb', None) is not None:
             # Flat indices - direct access  
-            embeddings = faiss.vector_to_array(getattr(index, 'xb'))
+            embeddings_raw = faiss.vector_to_array(getattr(index, 'xb'))
             embedding_dim = index.d
-            embeddings = embeddings.reshape(-1, embedding_dim)
+            embeddings_array: FloatArray = (
+                embeddings_raw.reshape(-1, embedding_dim).astype(np.float32)
+            )
             
-            if len(embeddings) > max_points:
-                indices = np.linspace(0, len(embeddings) - 1, max_points, dtype=int)
-                embeddings = embeddings[indices]
+            if len(embeddings_array) > max_points:
+                indices = np.linspace(0, len(embeddings_array) - 1, max_points, dtype=int)
+                embeddings_array = embeddings_array[indices]
                 
-            return embeddings
+            return embeddings_array
         else:
             raise ValueError(f"Unsupported FAISS index type: {type(index)}")
             
@@ -74,11 +85,11 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> np.
 # Dimensionality Reduction
 # ===============================
 def _apply_dimensionality_reduction(
-    embeddings: np.ndarray,
+    embeddings: EmbeddingArray,
     method: str = "umap",
     dimensions: int = 2,
     random_state: int = 42
-) -> Any:
+) -> EmbeddingArray:
     """Apply UMAP or t-SNE dimensionality reduction."""
     # Import at runtime to avoid circular dependency
     from query_rag import _memory_cleanup
@@ -114,11 +125,11 @@ def _apply_dimensionality_reduction(
 # ===============================
 def create_embedding_visualization(
     query: str,
-    query_embedding: np.ndarray,
+    query_embedding: EmbeddingArray,
     index: faiss.Index,
-    metadata:list[dict[str, Any]],
-    retrieved_indices:list[int],
-    scores:list[float],
+    metadata: Sequence[MetadataDict],
+    retrieved_indices: Sequence[int],
+    scores: Sequence[float],
     method: str = "umap",
     dimensions: int = 2,
     max_points: int = 1000
@@ -135,7 +146,7 @@ def create_embedding_visualization(
         reduced_embeddings = _apply_dimensionality_reduction(all_embeddings, method, dimensions)
         
         # Prepare points for frontend
-        points = []
+        points: list[PointDict] = []
         
         # Query point (first)
         query_coords = reduced_embeddings[0]
@@ -152,7 +163,9 @@ def create_embedding_visualization(
         })
         
         # Document points
-        retrieved_scores = dict(zip(retrieved_indices, scores))
+        retrieved_scores = {
+            int(idx): float(score) for idx, score in zip(retrieved_indices, scores)
+        }
         
         for i, coords in enumerate(reduced_embeddings[1:], 1):
             meta_idx = min(i - 1, len(metadata) - 1)
@@ -160,7 +173,8 @@ def create_embedding_visualization(
             if meta_idx < len(metadata):
                 meta = metadata[meta_idx]
                 score = retrieved_scores.get(meta_idx, 0.0)
-                text = meta.get("text", "")
+                text_raw = meta.get("text", "")
+                text = str(text_raw)
                 
                 points.append({
                     "id": i,

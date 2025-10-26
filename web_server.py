@@ -8,26 +8,23 @@
 # ===============================
 # Standard Library
 # ===============================
+from __future__ import annotations
+
 import traceback
 from pathlib import Path
-from typing import Any, TYPE_CHECKING, TypedDict
+from typing import Any, TypedDict, Protocol, Sequence, cast
 from contextlib import asynccontextmanager
-
-if TYPE_CHECKING:
-    import faiss
-    from sentence_transformers import SentenceTransformer
-else:
-    # Import at runtime for actual use
-    import faiss
 
 # ===============================
 # Third-party Libraries
 # ===============================
+import faiss
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
 import uvicorn
 
 # ===============================
@@ -50,9 +47,9 @@ from visualization_utils import create_embedding_visualization
 # ===============================
 class RAGSystemState(TypedDict):
     """Type definition for global RAG system state."""
-    index: "faiss.Index" | None
+    index: faiss.Index | None
     metadata: list[MetadataDict] | None
-    embedder: "SentenceTransformer" | None
+    embedder: SentenceTransformer | None
     config: RAGConfig | None
     loaded: bool
 
@@ -127,6 +124,16 @@ class VisualizationResponse(BaseModel):
     error: str | None = None
 
 
+class _SentenceEncoder(Protocol):
+    def __call__(
+        self,
+        sentences: Sequence[str],
+        *,
+        convert_to_numpy: bool,
+        normalize_embeddings: bool,
+    ) -> Any: ...
+
+
 # ===============================
 # Global State
 # ===============================
@@ -137,6 +144,11 @@ rag_system: RAGSystemState = {
     "config": None,
     "loaded": False,
 }
+
+
+def _get_sentence_encoder(embedder: "SentenceTransformer") -> _SentenceEncoder:
+    encode_callable = getattr(embedder, "encode")
+    return cast(_SentenceEncoder, encode_callable)
 
 
 # ===============================
@@ -321,7 +333,7 @@ async def query_rag_endpoint(request: QueryRequest):
 def _query_rag_with_sources(
     query: str,
     index: "faiss.Index",
-    metadata:list[dict[str, Any]],
+    metadata: Sequence[MetadataDict],
     embedder: "SentenceTransformer",
     config: RAGConfig,
     top_k: int,
@@ -336,9 +348,11 @@ def _query_rag_with_sources(
         return None, []
 
     try:
+        encode_queries = _get_sentence_encoder(embedder)
+
         with _memory_cleanup():
             # Embed the query
-            query_emb = embedder.encode(
+            query_emb = encode_queries(
                 [query], convert_to_numpy=True, normalize_embeddings=False
             )
             query_emb_array = np.asarray(query_emb, dtype=np.float32)
@@ -350,24 +364,25 @@ def _query_rag_with_sources(
             indices = labels
 
         # Collect relevant chunks and sources
-        context_chunks:list[str] = []
-        sources_info:list[SearchResult] = []
+        context_chunks: list[str] = []
+        sources_info: list[SearchResult] = []
 
-        for score, idx in zip(scores[0], indices[0]):
-            if idx == -1 or idx >= len(metadata):
+        for score_raw, idx_raw in zip(scores[0], indices[0]):
+            idx_int = int(idx_raw)
+            if idx_int == -1 or idx_int >= len(metadata):
                 continue
 
-            meta = metadata[idx]
-            source = meta["source"]
-            chunk_idx = meta["chunk_index"]
-            text = meta["text"]
+            meta: MetadataDict = metadata[idx_int]
+            source = str(meta["source"])
+            chunk_idx = int(meta["chunk_index"])
+            text = str(meta["text"])
 
             context_chunks.append(text)
             sources_info.append(
                 SearchResult(
                     source=source,
                     chunk_idx=chunk_idx,
-                    score=float(score),
+                    score=float(score_raw),
                     text=text,
                 )
             )
@@ -427,9 +442,11 @@ async def visualize_embeddings_endpoint(request: VisualizationRequest):
         from query_rag import _memory_cleanup, _l2_normalize
         import numpy as np
 
+        encode_queries = _get_sentence_encoder(embedder)
+
         with _memory_cleanup():
             # Embed the query
-            query_emb = embedder.encode(
+            query_emb = encode_queries(
                 [request.query], convert_to_numpy=True, normalize_embeddings=False
             )
             query_emb_array = np.asarray(query_emb, dtype=np.float32)
