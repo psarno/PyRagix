@@ -1,6 +1,6 @@
 # Virtual environments
 venv/
-venv/
+.venv/
 .env/
 
 # Python cache
@@ -21,6 +21,8 @@ dist/
 .vscode/
 .idea/
 *.swp
+claude.md
+CLAUDE.md
 
 # OS junk
 Thumbs.db
@@ -30,6 +32,9 @@ Thumbs.db
 # FAISS vector storage files
 local_faiss.index
 documents.db
+
+# BM25 sparse retrieval index
+*.pkl
 
 # Misc project files (logging, user config, etc.)
 processed_files.txt
