@@ -77,6 +77,9 @@ class BM25Index:
         Args:
             corpus: List of document texts to index (optional)
         """
+
+        super().__init__()
+
         if BM25Okapi is None:
             raise ImportError(
                 "rank-bm25 not installed. Run: pip install rank-bm25>=0.2.2"

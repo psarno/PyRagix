@@ -36,6 +36,7 @@ class OCRProcessor:
     """Handles all OCR operations with PaddleOCR."""
 
     def __init__(self, config: "ProcessingConfig"):
+        super().__init__()
         self.config = config
         self.ocr = self._init_ocr()
 

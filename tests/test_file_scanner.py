@@ -16,6 +16,7 @@ class MockOCRProcessor:
 
     def __init__(self, config: ProcessingConfig | None = None) -> None:
         """Initialize mock OCR processor."""
+        super().__init__()
         self.config = config or ProcessingConfig()
 
     def extract_from_image(self, path: str) -> str:

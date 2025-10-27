@@ -8,6 +8,7 @@ class _Rect:
     """Mock PDF rectangle for testing."""
 
     def __init__(self, width: float, height: float) -> None:
+        super().__init__()
         self._width = width
         self._height = height
 
@@ -40,6 +41,7 @@ class _Page:
     """Mock PDF page for testing."""
 
     def __init__(self, rect: _Rect) -> None:
+        super().__init__()
         self._rect = rect
 
     @property

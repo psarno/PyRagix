@@ -14,6 +14,7 @@ class FaissManager:
     """Encapsulates FAISS index + GPU resource management."""
 
     def __init__(self) -> None:
+        super().__init__()
         self._gpu_resources: Any | None = None
         self._gpu_functions_available = False
         self._gpu_status = "GPU disabled"

@@ -67,6 +67,7 @@ class Reranker:
         Args:
             model_name: HuggingFace cross-encoder model name
         """
+        super().__init__()
         self.model_name = model_name
         self._model: _CrossEncoder | None = None
         logger.info(f"Reranker initialized with model: {model_name}")
