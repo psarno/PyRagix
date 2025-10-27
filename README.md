@@ -191,25 +191,30 @@ uv run python query_rag.py
 
 ## Configuration
 
-PyRagix uses `settings.json` for all configuration. The file is auto-generated with optimal defaults for your system on first run.
+PyRagix uses `settings.toml` for all configuration. The file is auto-generated with optimal defaults for your system on first run.
 
 ### Production RAG Features (v0.4+)
 
-Enable modern RAG techniques in `settings.json`:
+Enable modern RAG techniques in `settings.toml`:
 
-```json
-{
-  "ENABLE_QUERY_EXPANSION": true,
-  "QUERY_EXPANSION_COUNT": 3,
-  "ENABLE_RERANKING": true,
-  "RERANKER_MODEL": "cross-encoder/ms-marco-MiniLM-L-6-v2",
-  "RERANK_TOP_K": 20,
-  "ENABLE_HYBRID_SEARCH": true,
-  "HYBRID_ALPHA": 0.7,
-  "ENABLE_SEMANTIC_CHUNKING": true,
-  "SEMANTIC_CHUNK_MAX_SIZE": 1600,
-  "SEMANTIC_CHUNK_OVERLAP": 200
-}
+```toml
+[query_expansion]
+ENABLE_QUERY_EXPANSION = true
+QUERY_EXPANSION_COUNT = 3
+
+[reranking]
+ENABLE_RERANKING = true
+RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+RERANK_TOP_K = 20
+
+[hybrid_search]
+ENABLE_HYBRID_SEARCH = true
+HYBRID_ALPHA = 0.7
+
+[semantic_chunking]
+ENABLE_SEMANTIC_CHUNKING = true
+SEMANTIC_CHUNK_MAX_SIZE = 1600
+SEMANTIC_CHUNK_OVERLAP = 200
 ```
 
 **Query Expansion**: Set `ENABLE_QUERY_EXPANSION: true` to generate multiple query variants. This improves recall by 20-30% on paraphrased or ambiguous queries. Adjust `QUERY_EXPANSION_COUNT` (default: 3) to control the number of variants.
@@ -225,37 +230,46 @@ Enable modern RAG techniques in `settings.json`:
 ### Hardware Tuning
 
 For memory-constrained systems (8-12GB RAM):
-```json
-{
-  "BATCH_SIZE": 8,
-  "TORCH_NUM_THREADS": 4,
-  "BASE_DPI": 100
-}
+```toml
+[embeddings]
+BATCH_SIZE = 8
+
+[threading]
+TORCH_NUM_THREADS = 4
+
+[pdf]
+BASE_DPI = 100
 ```
 
 For high-performance systems (32GB+ RAM):
-```json
-{
-  "BATCH_SIZE": 32,
-  "TORCH_NUM_THREADS": 12,
-  "BASE_DPI": 200,
-  "NLIST": 2048,
-  "NPROBE": 32
-}
+```toml
+[embeddings]
+BATCH_SIZE = 32
+
+[threading]
+TORCH_NUM_THREADS = 12
+
+[pdf]
+BASE_DPI = 200
+
+[faiss]
+NLIST = 2048
+NPROBE = 32
 ```
 
 ### LLM Configuration
 
 Customize Ollama model and generation parameters:
-```json
-{
-  "OLLAMA_MODEL": "qwen2.5:7b",
-  "TEMPERATURE": 0.1,
-  "TOP_P": 0.9,
-  "MAX_TOKENS": 500,
-  "DEFAULT_TOP_K": 7,
-  "REQUEST_TIMEOUT": 180
-}
+```toml
+[llm]
+OLLAMA_MODEL = "qwen2.5:7b"
+TEMPERATURE = 0.1
+TOP_P = 0.9
+MAX_TOKENS = 500
+REQUEST_TIMEOUT = 180
+
+[retrieval]
+DEFAULT_TOP_K = 7
 ```
 
 Models tested successfully: `qwen2.5:7b`, `llama3.2`, `phi3:3.8b`, `gemma2:2b`. Larger models improve answer quality but increase latency.
@@ -276,22 +290,20 @@ uv run python ingest_folder.py ./more_docs
 ### Custom Document Filters
 
 Skip specific file types or patterns:
-```json
-{
-  "SKIP_FILES": ["*.tmp", "backup_*", "archive/*"]
-}
+```toml
+[pdf]
+SKIP_FILES = ["*.tmp", "backup_*", "archive/*"]
 ```
 
 ### FAISS Index Optimization
 
 PyRagix uses IVF (Inverted File) indexing by default for fast search on large corpora:
 
-```json
-{
-  "INDEX_TYPE": "ivf",
-  "NLIST": 1024,
-  "NPROBE": 16
-}
+```toml
+[faiss]
+INDEX_TYPE = "ivf"
+NLIST = 1024
+NPROBE = 16
 ```
 
 - **NLIST**: Number of clusters (default: 1024). Increase for larger datasets (10k+ chunks).
@@ -303,12 +315,11 @@ The system automatically falls back to flat indexing for small collections (< 20
 
 PyRagix includes GPU detection with automatic CPU fallback:
 
-```json
-{
-  "GPU_ENABLED": true,
-  "GPU_DEVICE": 0,
-  "GPU_MEMORY_FRACTION": 0.8
-}
+```toml
+[gpu]
+GPU_ENABLED = true
+GPU_DEVICE = 0
+GPU_MEMORY_FRACTION = 0.8
 ```
 
 Note: GPU FAISS requires compatible hardware and special installation. The system works perfectly with CPU-only FAISS (default).
