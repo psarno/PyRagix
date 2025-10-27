@@ -1,6 +1,12 @@
+import warnings
+
 from ingestion.cli import main as _cli_main
 from ingestion.environment import EnvironmentManager
 from ingestion.pipeline import build_index
+
+# Suppress misleading PaddlePaddle ccache warning
+# (only relevant when building from source, not using pre-built wheels)
+warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
 
 _ENV_MANAGER = EnvironmentManager()
 
