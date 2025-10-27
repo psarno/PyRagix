@@ -1,7 +1,6 @@
 """Type stubs for PyMuPDF (fitz)."""
 
-from typing import Any, Iterator, Callable
-from collections.abc import Sequence
+from typing import Any, Iterator
 
 class Matrix:
     def __init__(self, a: float = 1.0, b: float = 0.0, c: float = 0.0,
