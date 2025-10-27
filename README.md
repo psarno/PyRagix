@@ -36,6 +36,12 @@ Dual Indexing (FAISS vector + BM25 keyword)
 
 This architecture delivers 20-30% improved recall through query expansion, 15-25% better precision via reranking, and 30-40% better structured query handling through hybrid search.
 
+**Performance Optimizations:**
+- Batch encoding of query variants for reduced embedding overhead
+- O(1) BM25 document lookup using hash-based indexing
+- Optimized FAISS nprobe parameter handling
+- Memory-efficient numpy array operations
+
 ## Key Features
 
 ### Modern RAG Techniques
@@ -191,7 +197,7 @@ uv run python query_rag.py
 
 ## Configuration
 
-PyRagix uses `settings.toml` for all configuration. The file is auto-generated with optimal defaults for your system on first run.
+PyRagix uses `settings.toml` (TOML format) for all configuration. The file is auto-generated with optimal defaults for your system on first run. A template is available at `settings.example.toml`.
 
 ### Production RAG Features (v0.4+)
 
@@ -334,7 +340,8 @@ PyRagix/
 ├── query_rag.py           # Console query CLI (thin wrapper)
 ├── web_server.py          # FastAPI web server
 ├── config.py              # Configuration management
-├── settings.json          # User configuration (auto-generated)
+├── settings.toml          # User configuration (auto-generated, TOML format)
+├── settings.example.toml  # Configuration template
 ├── types_models.py        # Shared Pydantic models (MetadataDict, etc.)
 │
 ├── ingestion/             # Document Processing Pipeline (11 modules)
@@ -380,9 +387,12 @@ PyRagix/
 │
 ├── tests/                 # Pytest Test Suite
 │   ├── conftest.py        # Shared fixtures (temp dirs, mocks)
-│   ├── test_file_filters.py
-│   ├── test_file_scanner.py
-│   └── test_text_processing.py
+│   ├── test_config.py     # Configuration validation tests
+│   ├── test_environment.py # Environment setup tests
+│   ├── test_faiss_manager.py # FAISS indexing tests
+│   ├── test_file_filters.py # File type detection tests
+│   ├── test_file_scanner.py # Document discovery tests
+│   └── test_text_processing.py # Text extraction tests
 │
 ├── web/                   # Web Interface (TypeScript)
 │   ├── index.html         # Main UI page
@@ -478,6 +488,20 @@ All dependencies are pinned to minimum versions. PyRagix requires Python 3.13+ a
 - **Medical Research**: Search clinical notes, research papers, and patient data (HIPAA-compliant when properly deployed)
 - **Software Documentation**: Build internal developer knowledge bases from code, docs, and tickets
 - **Personal Knowledge Management**: Create private search engines over personal notes, books, and research
+
+## CI/CD
+
+PyRagix includes GitHub Actions workflows for automated quality assurance:
+
+- **CI Workflow**: Runs on every push and pull request
+  - Type checking with `pyright --strict`
+  - Linting and formatting with `ruff`
+  - Full test suite with `pytest`
+  - Ensures Python 3.13+ compatibility
+
+- **Publish Workflow**: Automated package publishing (when configured)
+
+All code must pass strict type checking and tests before merging.
 
 ## Contributing
 
