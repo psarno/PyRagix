@@ -1,4 +1,6 @@
-from typing import Any, Iterator, Protocol, TypedDict, TYPE_CHECKING, cast
+from __future__ import annotations
+
+from typing import Any, Iterator, Protocol, TypedDict, TYPE_CHECKING, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,6 +12,12 @@ if TYPE_CHECKING:
     from ingestion.faiss_manager import FaissManager
 else:
     OCRProcessor = Any
+    FaissManager = Any
+    
+    class _FaissStub:
+        Index = Any
+
+    faiss = _FaissStub()
 
 
 class PDFRect(Protocol):
@@ -145,6 +153,7 @@ class PDFDocument(Protocol):
     def extract_image(self, xref: int) -> dict[str, Any] | None: ...
 
 
+@runtime_checkable
 class OCRProcessorProtocol(Protocol):
     """Structural type for OCR (Optical Character Recognition) processors.
 
@@ -180,6 +189,7 @@ class OCRProcessorProtocol(Protocol):
     ) -> str: ...
 
 
+@runtime_checkable
 class EmbeddingModel(Protocol):
     """Structural type for sentence embedding models.
 
