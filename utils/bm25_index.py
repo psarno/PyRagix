@@ -53,6 +53,7 @@ class _BM25Scorer(Protocol):
         self._bm25: _BM25Scorer | None = BM25Okapi(tokenized_corpus)
         scores: list[float] = self._bm25.get_scores(tokenized_query)
     """
+
     def get_scores(self, query: Sequence[str]) -> list[float]: ...
 
 
@@ -134,15 +135,12 @@ class BM25Index:
         # Get top-k indices sorted by score
         # argsort gives indices in ascending order, so reverse
         import numpy as np
+
         sorted_indices = np.argsort(scores)[::-1][:top_k]
         top_indices: list[int] = [int(idx) for idx in sorted_indices]
 
         # Filter out zero scores (no matches)
-        results = [
-            (idx, float(scores[idx]))
-            for idx in top_indices
-            if scores[idx] > 0
-        ]
+        results = [(idx, float(scores[idx])) for idx in top_indices if scores[idx] > 0]
 
         logger.debug(f"BM25 search returned {len(results)} results for query: {query}")
 
@@ -184,7 +182,7 @@ def save_bm25_index(index: BM25Index, file_path: Path) -> None:
         logger.info(f"Saving BM25 index to {file_path}...")
 
         # Serialize entire index object
-        with open(file_path, 'wb') as f:
+        with open(file_path, "wb") as f:
             pickle.dump(index, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         logger.info(f"BM25 index saved ({file_path.stat().st_size / 1024:.1f} KB)")
@@ -210,7 +208,7 @@ def load_bm25_index(file_path: Path) -> BM25Index | None:
     try:
         logger.info(f"Loading BM25 index from {file_path}...")
 
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             index = pickle.load(f)
 
         if not isinstance(index, BM25Index):
@@ -255,8 +253,7 @@ def normalize_bm25_scores(
     # Min-max normalization to [0, 1]
     denominator = max_score - min_score
     normalized: list[Bm25Result] = [
-        (idx, (score - min_score) / denominator)
-        for idx, score in results
+        (idx, (score - min_score) / denominator) for idx, score in results
     ]
 
     return normalized
@@ -293,9 +290,7 @@ def fuse_scores(
     bm25_normalized = normalize_bm25_scores(bm25_results)
 
     # Create lookup dict for BM25 scores by metadata index
-    bm25_score_map: dict[int, float] = {
-        idx: score for idx, score in bm25_normalized
-    }
+    bm25_score_map: dict[int, float] = {idx: score for idx, score in bm25_normalized}
 
     # Build fused results
     fused_results: list[FaissResult] = []
@@ -336,8 +331,8 @@ def fuse_scores(
     fused_results.sort(key=itemgetter("fused_score"), reverse=True)
 
     logger.debug(
-        f"Fused {len(faiss_results)} FAISS + {len(bm25_results)} BM25 results " +
-        f"(alpha={alpha}) → {len(fused_results)} results"
+        f"Fused {len(faiss_results)} FAISS + {len(bm25_results)} BM25 results "
+        + f"(alpha={alpha}) → {len(fused_results)} results"
     )
 
     return fused_results

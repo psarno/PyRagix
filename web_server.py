@@ -43,6 +43,7 @@ from visualization_utils import create_embedding_visualization
 # ===============================
 class RAGSystemState(TypedDict):
     """Type definition for global RAG system state."""
+
     index: faiss.Index | None
     metadata: list[MetadataDict] | None
     embedder: SentenceTransformer | None
@@ -130,6 +131,8 @@ rag_system: RAGSystemState = {
     "config": None,
     "loaded": False,
 }
+
+
 # ===============================
 # Startup/Shutdown Handlers
 # ===============================

@@ -228,7 +228,9 @@ def clean_stale_entries(stale_files: list[str], cfg: ProcessingConfig) -> None:
                 for entry in valid_entries:
                     _ = handle.write(f"{entry}\n")
 
-            print(f"   Cleaned processed files log ({len(valid_entries)} entries remain)")
+            print(
+                f"   Cleaned processed files log ({len(valid_entries)} entries remain)"
+            )
         except (OSError, UnicodeDecodeError) as exc:
             print(f"   Warning: Could not clean processed files log: {exc}")
 
@@ -276,4 +278,3 @@ __all__ = [
     "prompt_user_stale_action",
     "should_skip_file",
 ]
-

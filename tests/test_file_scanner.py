@@ -206,7 +206,9 @@ def test_document_extractor_and_chunker_orchestration(tmp_path: Path) -> None:
 
     with patch("ingestion.file_scanner.extract_text") as mock_extract:
         # Simulate extracted text with extra whitespace
-        mock_extract.return_value = "  The   quick brown  fox jumps  over the lazy  dog  "
+        mock_extract.return_value = (
+            "  The   quick brown  fox jumps  over the lazy  dog  "
+        )
 
         with patch("config.ENABLE_SEMANTIC_CHUNKING", False):
             # Extract and clean text

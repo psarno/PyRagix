@@ -190,14 +190,18 @@ def _pdf_page_text_or_ocr(
     return ocr.ocr_page_tiled(page, dpi)
 
 
-def _extract_from_pdf(path: str, ocr: OCRProcessorProtocol, cfg: ProcessingConfig) -> str:
+def _extract_from_pdf(
+    path: str, ocr: OCRProcessorProtocol, cfg: ProcessingConfig
+) -> str:
     pages: list[str] = []
     with fitz.open(path) as doc:
         for page in doc:
             try:
                 pages.append(_pdf_page_text_or_ocr(page, ocr, cfg, doc=doc))
             except (RuntimeError, MemoryError, OSError) as exc:
-                logger.error(f"⚠️ Error processing PDF page: {type(exc).__name__}: {exc}")
+                logger.error(
+                    f"⚠️ Error processing PDF page: {type(exc).__name__}: {exc}"
+                )
                 logger.debug("Full traceback:", exc_info=True)
                 continue
     return "\n".join(pages)

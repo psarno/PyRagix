@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class MetadataDict(BaseModel):
     """Metadata structure for document chunks with validation."""
+
     source: str = Field(description="Source file path")
     chunk_index: int = Field(ge=0, description="Chunk index within document")
     text: str = Field(description="Text content of the chunk")
@@ -22,28 +23,54 @@ class MetadataDict(BaseModel):
 class RAGConfig(BaseModel):
     """Configuration for RAG system with full validation."""
 
-    embed_model: str = Field(description="Embedding model name from sentence-transformers")
+    embed_model: str = Field(
+        description="Embedding model name from sentence-transformers"
+    )
     index_path: Path = Field(description="Path to FAISS index file")
     db_path: Path = Field(description="Path to SQLite database file")
     ollama_base_url: str = Field(description="Base URL for Ollama API")
     ollama_model: str = Field(description="Ollama model name to use")
-    default_top_k: int = Field(ge=1, description="Default number of results to retrieve")
+    default_top_k: int = Field(
+        ge=1, description="Default number of results to retrieve"
+    )
     request_timeout: int = Field(ge=1, description="Request timeout in seconds")
     temperature: float = Field(ge=0.0, le=2.0, description="LLM temperature")
     top_p: float = Field(ge=0.0, le=1.0, description="LLM top-p sampling")
     max_tokens: int = Field(ge=1, description="Maximum tokens to generate")
 
     # Phase 1 (v2): Query expansion and reranking
-    enable_query_expansion: bool = Field(default=False, description="Enable multi-query expansion")
-    query_expansion_count: int = Field(default=3, ge=1, description="Number of query variants to generate")
-    enable_reranking: bool = Field(default=False, description="Enable cross-encoder reranking")
-    reranker_model: str = Field(default="cross-encoder/ms-marco-MiniLM-L-6-v2", description="Cross-encoder model name")
-    rerank_top_k: int = Field(default=20, ge=1, description="Number of candidates to retrieve before reranking")
+    enable_query_expansion: bool = Field(
+        default=False, description="Enable multi-query expansion"
+    )
+    query_expansion_count: int = Field(
+        default=3, ge=1, description="Number of query variants to generate"
+    )
+    enable_reranking: bool = Field(
+        default=False, description="Enable cross-encoder reranking"
+    )
+    reranker_model: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        description="Cross-encoder model name",
+    )
+    rerank_top_k: int = Field(
+        default=20,
+        ge=1,
+        description="Number of candidates to retrieve before reranking",
+    )
 
     # Phase 2 (v2): Hybrid search
-    enable_hybrid_search: bool = Field(default=False, description="Enable hybrid FAISS + BM25 search")
-    hybrid_alpha: float = Field(default=0.7, ge=0.0, le=1.0, description="Weight for FAISS scores (0.7 = 70% semantic + 30% keyword)")
-    bm25_index_path: str = Field(default="bm25_index.pkl", description="Path to BM25 index file")
+    enable_hybrid_search: bool = Field(
+        default=False, description="Enable hybrid FAISS + BM25 search"
+    )
+    hybrid_alpha: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Weight for FAISS scores (0.7 = 70% semantic + 30% keyword)",
+    )
+    bm25_index_path: str = Field(
+        default="bm25_index.pkl", description="Path to BM25 index file"
+    )
 
     model_config = ConfigDict(
         frozen=False,
@@ -69,9 +96,15 @@ class SearchResult(BaseModel):
     text: str = Field(description="Retrieved text content")
 
     # Optional fields for hybrid search
-    faiss_score: float | None = Field(default=None, description="FAISS semantic similarity score")
-    bm25_score: float | None = Field(default=None, description="BM25 keyword relevance score")
-    fused_score: float | None = Field(default=None, description="Final fused score from hybrid search")
+    faiss_score: float | None = Field(
+        default=None, description="FAISS semantic similarity score"
+    )
+    bm25_score: float | None = Field(
+        default=None, description="BM25 keyword relevance score"
+    )
+    fused_score: float | None = Field(
+        default=None, description="Final fused score from hybrid search"
+    )
 
     model_config = ConfigDict(
         frozen=False,
@@ -85,7 +118,9 @@ class DocumentChunk(BaseModel):
     source_file: str = Field(description="Source file path")
     chunk_index: int = Field(ge=0, description="Chunk index within document")
     text_content: str = Field(description="Chunk text content")
-    embedding_vector: list[float] | None = Field(default=None, description="Embedding vector")
+    embedding_vector: list[float] | None = Field(
+        default=None, description="Embedding vector"
+    )
 
     model_config = ConfigDict(
         frozen=False,
@@ -97,8 +132,12 @@ class QueryExpansionResult(BaseModel):
     """Result from query expansion."""
 
     original_query: str = Field(description="Original user query")
-    expanded_queries: list[str] = Field(description="List of expanded/paraphrased queries")
-    expansion_method: str = Field(default="ollama", description="Method used for expansion")
+    expanded_queries: list[str] = Field(
+        description="List of expanded/paraphrased queries"
+    )
+    expansion_method: str = Field(
+        default="ollama", description="Method used for expansion"
+    )
 
     model_config = ConfigDict(frozen=True)
 

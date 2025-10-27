@@ -7,7 +7,9 @@ import pytest
 from ingestion.environment import EnvironmentManager
 
 
-def test_environment_manager_initialize_uses_mocks(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_environment_manager_initialize_uses_mocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = EnvironmentManager()
 
     ocr_calls: list[Any] = []

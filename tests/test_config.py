@@ -44,7 +44,9 @@ def load_isolated_config() -> Callable[..., Any]:
         sys.modules.pop(name, None)
 
 
-def test_settings_example_is_loadable(tmp_path: Path, load_isolated_config: callable) -> None:
+def test_settings_example_is_loadable(
+    tmp_path: Path, load_isolated_config: callable
+) -> None:
     module = load_isolated_config(tmp_path, module_name="config_test_example")
 
     generated_settings = tmp_path / "settings.toml"
@@ -57,7 +59,9 @@ def test_settings_example_is_loadable(tmp_path: Path, load_isolated_config: call
     assert getattr(module, "INDEX_TYPE") == "ivf"
 
 
-def test_index_type_normalization(tmp_path: Path, load_isolated_config: callable) -> None:
+def test_index_type_normalization(
+    tmp_path: Path, load_isolated_config: callable
+) -> None:
     module = load_isolated_config(tmp_path, module_name="config_test_normalization")
     config_cls = getattr(module, "PyRagixConfig")
 
@@ -81,7 +85,10 @@ def test_index_type_rejects_unknown_values(
 
 
 def test_missing_example_emits_warning(
-    tmp_path: Path, load_isolated_config: callable, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    load_isolated_config: callable,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = load_isolated_config(tmp_path, module_name="config_test_missing_example")
 

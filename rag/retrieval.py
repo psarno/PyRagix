@@ -120,7 +120,9 @@ def query_rag(
                     continue
 
                 if idx >= len(metadata):
-                    print(f"⚠️ Invalid index {idx} (metadata has {len(metadata)} entries)")
+                    print(
+                        f"⚠️ Invalid index {idx} (metadata has {len(metadata)} entries)"
+                    )
                     continue
 
                 meta = metadata[idx]
@@ -170,15 +172,15 @@ def query_rag(
                                 break
 
                         faiss_score = faiss_result.score
-                        faiss_normalized = max(
-                            0.0, min(1.0, (faiss_score - 0.5) * 2.0)
-                        )
+                        faiss_normalized = max(0.0, min(1.0, (faiss_score - 0.5) * 2.0))
                         bm25_score = (
                             bm25_score_map.get(meta_idx, 0.0)
                             if meta_idx is not None
                             else 0.0
                         )
-                        fused_score = alpha * faiss_normalized + (1 - alpha) * bm25_score
+                        fused_score = (
+                            alpha * faiss_normalized + (1 - alpha) * bm25_score
+                        )
 
                         fused = faiss_result.model_copy()
                         fused.faiss_score = faiss_score
@@ -195,8 +197,8 @@ def query_rag(
 
                     if debug:
                         print(
-                            f"   Fused with alpha={alpha} " +
-                            f"(semantic={alpha}, keyword={1 - alpha})"
+                            f"   Fused with alpha={alpha} "
+                            + f"(semantic={alpha}, keyword={1 - alpha})"
                         )
 
                 except Exception as exc:
@@ -239,8 +241,8 @@ def query_rag(
             for i, info in enumerate(sources_info, start=1):
                 source_path = Path(info.source)
                 print(
-                    f"{i}. {source_path.name} " +
-                    f"(chunk {info.chunk_idx}, score: {info.score:.3f})"
+                    f"{i}. {source_path.name} "
+                    + f"(chunk {info.chunk_idx}, score: {info.score:.3f})"
                 )
             print("-" * 60)
 

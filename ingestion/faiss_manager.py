@@ -182,7 +182,11 @@ class FaissManager:
         faiss.write_index(save_index, str(path))
 
     def _detect_gpu_faiss(self) -> tuple[bool, str]:
-        required_attrs = ["StandardGpuResources", "index_cpu_to_gpu", "index_gpu_to_cpu"]
+        required_attrs = [
+            "StandardGpuResources",
+            "index_cpu_to_gpu",
+            "index_gpu_to_cpu",
+        ]
         missing_attrs = [attr for attr in required_attrs if not hasattr(faiss, attr)]
 
         if missing_attrs:
@@ -212,8 +216,8 @@ class FaissManager:
             gpu_res.setTempMemoryFraction(config.GPU_MEMORY_FRACTION)
 
             logger.info(
-                "🎮 GPU resources initialized " +
-                f"(device {config.GPU_DEVICE}, memory fraction: {config.GPU_MEMORY_FRACTION})"
+                "🎮 GPU resources initialized "
+                + f"(device {config.GPU_DEVICE}, memory fraction: {config.GPU_MEMORY_FRACTION})"
             )
             return gpu_res
         except Exception as exc:

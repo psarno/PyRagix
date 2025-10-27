@@ -19,6 +19,7 @@ class PyRagixConfig(BaseModel):
 
     Loaded from settings.toml. Pydantic handles type coercion and validation.
     """
+
     # CPU / Threading
     TORCH_NUM_THREADS: int = 6
     OPENBLAS_NUM_THREADS: int = 6
@@ -28,7 +29,9 @@ class PyRagixConfig(BaseModel):
 
     # GPU / CUDA
     CUDA_VISIBLE_DEVICES: str = "0"
-    PYTORCH_CUDA_ALLOC_CONF: str = "max_split_size_mb:1024,garbage_collection_threshold:0.9"
+    PYTORCH_CUDA_ALLOC_CONF: str = (
+        "max_split_size_mb:1024,garbage_collection_threshold:0.9"
+    )
     FAISS_DISABLE_CPU: str = "1"
     CUDA_LAUNCH_BLOCKING: str = "0"
 
@@ -97,7 +100,6 @@ class PyRagixConfig(BaseModel):
         raise ValueError("INDEX_TYPE must be one of: flat, ivf, ivf_pq")
 
 
-
 # Settings file paths
 SETTINGS_FILE = "settings.toml"
 SETTINGS_EXAMPLE_FILE = "settings.example.toml"
@@ -113,7 +115,9 @@ def _create_settings_from_example() -> None:
     settings_path = Path(SETTINGS_FILE)
 
     if not example_path.exists():
-        print(f"Warning: {SETTINGS_EXAMPLE_FILE} not found. Cannot create {SETTINGS_FILE}.")
+        print(
+            f"Warning: {SETTINGS_EXAMPLE_FILE} not found. Cannot create {SETTINGS_FILE}."
+        )
         print("Please ensure settings.example.toml exists in the project directory.")
         return
 

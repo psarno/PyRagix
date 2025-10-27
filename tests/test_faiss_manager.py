@@ -15,7 +15,9 @@ def _install_faiss_stub(monkeypatch: pytest.MonkeyPatch, *, ivf_raises: bool) ->
             self.ntotal = 0
 
     class IvfIndex:
-        def __init__(self, quantizer: FlatIndex, dim: int, nlist: int, metric: int) -> None:  # noqa: ARG002
+        def __init__(
+            self, quantizer: FlatIndex, dim: int, nlist: int, metric: int
+        ) -> None:  # noqa: ARG002
             super().__init__()
             if ivf_raises:
                 raise RuntimeError("ivf not supported")

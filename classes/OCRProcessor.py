@@ -22,7 +22,15 @@ if TYPE_CHECKING:
     from ingestion.models import PDFDocument, PDFPage, PILImage
 
 base = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
-for sub in ["cudnn", "cublas", "cufft", "curand", "cusolver", "cusparse", "cuda_runtime"]:
+for sub in [
+    "cudnn",
+    "cublas",
+    "cufft",
+    "curand",
+    "cusolver",
+    "cusparse",
+    "cuda_runtime",
+]:
     bin_path = os.path.join(base, sub, "bin")
     if os.path.isdir(bin_path):
         _ = os.add_dll_directory(bin_path)
@@ -31,6 +39,7 @@ for sub in ["cudnn", "cublas", "cufft", "curand", "cusolver", "cusparse", "cuda_
 logger = logging.getLogger(__name__)
 
 ImageInfo = tuple[int, ...]
+
 
 class OCRProcessor:
     """Handles all OCR operations with PaddleOCR."""
@@ -53,7 +62,9 @@ class OCRProcessor:
             dev = getattr(
                 getattr(paddle, "device", None), "get_device", lambda: "cpu"
             )()
-            logger.info(f"ℹ️ PaddlePaddle: {getattr(paddle, '__version__', 'unknown')} | Device: {dev}")
+            logger.info(
+                f"ℹ️ PaddlePaddle: {getattr(paddle, '__version__', 'unknown')} | Device: {dev}"
+            )
         except (AttributeError, TypeError):
             logger.warning("⚠️ Could not print Paddle version/device.")
         return ocr
@@ -74,16 +85,16 @@ class OCRProcessor:
             # Convert and process
             rgb_img = pil_img.convert("RGB")
             arr = np.array(rgb_img)
-            
+
             # Clear RGB image from memory
             if rgb_img is not pil_img:
                 rgb_img.close()
-            
+
             result = self.ocr.predict(arr)
-            
+
             # Clear array from memory
             del arr
-            
+
             if not result:
                 return ""
             first_result = result[0] if len(result) > 0 else None
@@ -123,7 +134,7 @@ class OCRProcessor:
         # tile size in page coordinates (points)
         tile_w_pts = tile_px / s
         tile_h_pts = tile_px / s
-        ov_pts = overlap_value / s 
+        ov_pts = overlap_value / s
 
         for iy in range(ny):
             for ix in range(nx):
@@ -158,11 +169,11 @@ class OCRProcessor:
                     pix = None
                     im.close()
                     del im, png_bytes
-                    
+
                     # Force memory cleanup every 10 tiles
                     if (iy * nx + ix + 1) % 10 == 0:
                         self._cleanup_memory()
-                        
+
                 except (MemoryError, RuntimeError):
                     # Handle both MemoryError and "could not create a primitive" RuntimeError
                     if pix:

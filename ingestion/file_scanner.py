@@ -90,8 +90,11 @@ class FileScanner:
         embs: np.ndarray | None = None
         embedder = self._ctx.embedder
         try:
-            with torch.inference_mode(), torch.autocast(
-                "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
+            with (
+                torch.inference_mode(),
+                torch.autocast(
+                    "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
+                ),
             ):
                 embs_raw = embedder.encode(
                     chunks,
@@ -103,9 +106,7 @@ class FileScanner:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
         except torch.OutOfMemoryError as exc:
-            logger.error(
-                "⚠️  CUDA out of memory during embedding for %s: %s", path, exc
-            )
+            logger.error("⚠️  CUDA out of memory during embedding for %s: %s", path, exc)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             try:
@@ -115,8 +116,11 @@ class FileScanner:
                 logger.info(
                     "🔄 Retrying embedding with smaller batch size: %s", smaller_batch
                 )
-                with torch.inference_mode(), torch.autocast(
-                    "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
+                with (
+                    torch.inference_mode(),
+                    torch.autocast(
+                        "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
+                    ),
                 ):
                     embs_raw = embedder.encode(
                         chunks,
@@ -177,7 +181,9 @@ class FileScanner:
                     "created_at": created_at,
                 }
             )
-            metadata_entries.append(MetadataDict(source=path, chunk_index=i, text=chunk))
+            metadata_entries.append(
+                MetadataDict(source=path, chunk_index=i, text=chunk)
+            )
 
         metadata.extend(metadata_entries)
         insert_chunk_records(self._ctx.config.db_path, chunk_records)
@@ -256,14 +262,16 @@ class FileScanner:
                         file_hash = calculate_file_hash(path)
                         filename = os.path.basename(path)
                         if file_hash:
-                            with open(cfg.processed_log, "a", encoding="utf-8") as handle:
+                            with open(
+                                cfg.processed_log, "a", encoding="utf-8"
+                            ) as handle:
                                 _ = handle.write(f"{file_hash}|{filename}\n")
 
                     if file_count % cfg.top_print_every == 0:
                         print(
-                            "⚙️ Processed " +
-                            f"{file_count} files | total chunks: {chunk_total} | " +
-                            f"already done: {skipped_already_processed} | problems: {skipped_problems}"
+                            "⚙️ Processed "
+                            + f"{file_count} files | total chunks: {chunk_total} | "
+                            + f"already done: {skipped_already_processed} | problems: {skipped_problems}"
                         )
 
                 except Exception as exc:
@@ -275,13 +283,13 @@ class FileScanner:
                     )
 
                     with open(config.CRASH_LOG_FILE, "a", encoding="utf-8") as handle:
-                        _ = handle.write(f"\n{'='*60}\n")
+                        _ = handle.write(f"\n{'=' * 60}\n")
                         _ = handle.write(f"CRASHED FILE: {path}\n")
                         _ = handle.write(f"ERROR TYPE: {error_type}\n")
                         _ = handle.write(f"ERROR: {error_msg}\n")
                         _ = handle.write("TRACEBACK:\n")
                         _ = handle.write(traceback.format_exc())
-                        _ = handle.write(f"\n{'='*60}\n")
+                        _ = handle.write(f"\n{'=' * 60}\n")
 
                     skip_reasons[error_type] = skip_reasons.get(error_type, 0) + 1
                     self._env.cleanup()

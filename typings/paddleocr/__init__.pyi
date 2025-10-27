@@ -24,7 +24,6 @@ class PaddleOCR:
         show_log: bool = True,
         **kwargs: Any,
     ) -> None: ...
-
     def predict(
         self,
         input: str | NDArray[Any],
@@ -40,7 +39,6 @@ class PaddleOCR:
         text_rec_score_thresh: float | None = None,
         return_word_box: bool | None = None,
     ) -> OCRBatchResult: ...
-
     def ocr(
         self,
         img: str | NDArray[Any],

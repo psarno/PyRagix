@@ -52,8 +52,8 @@ def load_rag_system(
 
         if index.ntotal != len(metadata):
             raise ValueError(
-                f"Index/metadata mismatch: {index.ntotal} vectors vs " +
-                f"{len(metadata)} metadata entries"
+                f"Index/metadata mismatch: {index.ntotal} vectors vs "
+                + f"{len(metadata)} metadata entries"
             )
 
         unique_sources = len(set(m.source for m in metadata))
@@ -67,13 +67,13 @@ def load_rag_system(
         if index_type == "IVF":
             nprobe = getattr(index, "nprobe", "unknown")
             print(
-                f"Loaded {index.ntotal} chunks from {unique_sources} files " +
-                f"(IVF index on {device_info}, nprobe={nprobe})"
+                f"Loaded {index.ntotal} chunks from {unique_sources} files "
+                + f"(IVF index on {device_info}, nprobe={nprobe})"
             )
         else:
             print(
-                f"Loaded {index.ntotal} chunks from {unique_sources} files " +
-                f"(Flat index on {device_info})"
+                f"Loaded {index.ntotal} chunks from {unique_sources} files "
+                + f"(Flat index on {device_info})"
             )
 
         return index, metadata, embedder

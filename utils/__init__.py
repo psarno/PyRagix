@@ -12,4 +12,10 @@ from utils.query_expander import expand_query
 from utils.reranker import Reranker
 from utils.bm25_index import BM25Index, build_bm25_index, load_bm25_index
 
-__all__ = ["expand_query", "Reranker", "BM25Index", "build_bm25_index", "load_bm25_index"]
+__all__ = [
+    "expand_query",
+    "Reranker",
+    "BM25Index",
+    "build_bm25_index",
+    "load_bm25_index",
+]

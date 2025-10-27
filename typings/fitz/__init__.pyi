@@ -3,8 +3,15 @@
 from typing import Any, Iterator
 
 class Matrix:
-    def __init__(self, a: float = 1.0, b: float = 0.0, c: float = 0.0,
-                 d: float = 1.0, e: float = 0.0, f: float = 0.0) -> None: ...
+    def __init__(
+        self,
+        a: float = 1.0,
+        b: float = 0.0,
+        c: float = 0.0,
+        d: float = 1.0,
+        e: float = 0.0,
+        f: float = 0.0,
+    ) -> None: ...
 
 class Rect:
     x0: float

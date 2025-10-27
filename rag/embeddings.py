@@ -32,6 +32,7 @@ class SentenceEncoder(Protocol):
         encode: SentenceEncoder = get_sentence_encoder(embedder)
         embeddings = encode(["hello", "world"], convert_to_numpy=True, normalize_embeddings=True)
     """
+
     def __call__(
         self,
         sentences: Sequence[str],

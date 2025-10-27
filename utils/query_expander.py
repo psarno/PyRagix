@@ -26,7 +26,7 @@ def expand_query(
     ollama_model: str,
     num_variants: int = 3,
     timeout: int = 30,
-) ->list[str]:
+) -> list[str]:
     """Generate multiple query variants for improved retrieval recall.
 
     Args:

@@ -51,11 +51,13 @@ class _CrossEncoder(Protocol):
         pairs = [(query, doc.text) for doc in results]
         scores: Sequence[float] = model.predict(pairs)
     """
+
     def predict(
         self,
         sentences: Sequence[tuple[str, str]],
         **kwargs: Any,
     ) -> Sequence[float]: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +132,7 @@ class Reranker:
                 reranked_results.append(result_copy)
 
             # Sort by rerank score (descending)
-            reranked_results.sort(key=attrgetter('score'), reverse=True)
+            reranked_results.sort(key=attrgetter("score"), reverse=True)
 
             # Return top-k if specified
             if top_k is not None and top_k > 0:

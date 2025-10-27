@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Iterator, Protocol, TypedDict, TYPE_CHECKING, cast, runtime_checkable
+from typing import (
+    Any,
+    Iterator,
+    Protocol,
+    TypedDict,
+    TYPE_CHECKING,
+    cast,
+    runtime_checkable,
+)
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,7 +21,7 @@ if TYPE_CHECKING:
 else:
     OCRProcessor = Any
     FaissManager = Any
-    
+
     class _FaissStub:
         Index = Any
 
@@ -31,6 +39,7 @@ class PDFRect(Protocol):
     that cannot inherit from Python classes. Structural typing lets us type it without
     modification.
     """
+
     @property
     def x0(self) -> float: ...
     @property
@@ -55,6 +64,7 @@ class PDFPixmap(Protocol):
     allows us to work with rendered content without inheritance or modification of the
     underlying C++ library.
     """
+
     def getPNGdata(self) -> bytes: ...
 
     def tobytes(self, output: str = ...) -> bytes: ...
@@ -82,7 +92,14 @@ class PILImage(Protocol):
     @property
     def height(self) -> int: ...
 
-    def convert(self, mode: str | None = ..., matrix: Any = ..., dither: Any = ..., palette: Any = ..., colors: int = ...) -> Any: ...
+    def convert(
+        self,
+        mode: str | None = ...,
+        matrix: Any = ...,
+        dither: Any = ...,
+        palette: Any = ...,
+        colors: int = ...,
+    ) -> Any: ...
 
     def resize(self, size: tuple[int, int], resample: Any = ...) -> Any: ...
 
@@ -146,6 +163,7 @@ class PDFDocument(Protocol):
             for xref in page.get_images():
                 img_data = doc.extract_image(xref)  # dict or None
     """
+
     page_count: int
 
     def __iter__(self) -> Iterator[PDFPage]: ...
@@ -212,6 +230,7 @@ class EmbeddingModel(Protocol):
     - ingestion/environment.py: EnvironmentManager initializes embedder
     - Tests (MockEmbedder in test_file_scanner.py)
     """
+
     def encode(
         self,
         sentences: list[str],
@@ -247,7 +266,9 @@ class IngestionContext(BaseModel):
     embedder: EmbeddingModel
     faiss_manager: "FaissManager"
     index: faiss.Index | None = None
-    metadata: list[MetadataDict] = Field(default_factory=lambda: cast(list[MetadataDict], []))
+    metadata: list[MetadataDict] = Field(
+        default_factory=lambda: cast(list[MetadataDict], [])
+    )
     processed_hashes: set[str] = Field(default_factory=set)
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
