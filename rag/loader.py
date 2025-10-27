@@ -7,6 +7,7 @@ import sqlite_utils
 from sentence_transformers import SentenceTransformer
 
 from types_models import MetadataDict, RAGConfig
+import config as global_config
 
 import faiss
 
@@ -34,9 +35,8 @@ def load_rag_system(
         index = faiss.read_index(str(config.index_path))
 
         if hasattr(index, "nprobe"):
-            nprobe = getattr(config, "NPROBE", 16)
-            index.nprobe = nprobe
-            print(f"Set IVF nprobe to {nprobe}")
+            index.nprobe = global_config.NPROBE
+            print(f"Set IVF nprobe to {global_config.NPROBE}")
 
         db = sqlite_utils.Database(str(config.db_path))
         metadata: list[MetadataDict] = []
