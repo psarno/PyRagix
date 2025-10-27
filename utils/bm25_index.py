@@ -1,8 +1,7 @@
-from typing import Any, Protocol
+from typing import Protocol
 import pickle
 import logging
 from pathlib import Path
-from operator import itemgetter
 from collections.abc import Sequence
 
 """
@@ -31,8 +30,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-FaissResult = dict[str, Any]
-Bm25Result = tuple[int, float]
+# Type aliases for BM25 results
+Bm25Result = tuple[int, float]  # (metadata_idx, bm25_score)
 
 
 class _BM25Scorer(Protocol):
@@ -257,82 +256,3 @@ def normalize_bm25_scores(
     ]
 
     return normalized
-
-
-def fuse_scores(
-    faiss_results: list[FaissResult],
-    bm25_results: list[Bm25Result],
-    alpha: float = 0.7,
-) -> list[FaissResult]:
-    """Fuse FAISS and BM25 scores using weighted average.
-
-    Formula: final_score = alpha * faiss_score + (1 - alpha) * bm25_score
-
-    Note: This function matches FAISS results with BM25 results by their position
-    in the metadata list (assumes both use same chunk indexing).
-
-    Args:
-        faiss_results: List of search results from FAISS (with 'score' field)
-        bm25_results: List of (metadata_index, bm25_score) tuples where metadata_index
-                     corresponds to the position in the metadata list
-        alpha: Weight for FAISS score (0.0 = pure BM25, 1.0 = pure FAISS)
-
-    Returns:
-        Fused results sorted by final score (descending)
-    """
-    if not (0.0 <= alpha <= 1.0):
-        raise ValueError(f"alpha must be in [0, 1], got {alpha}")
-
-    if not faiss_results:
-        return []
-
-    # Normalize BM25 scores to [0, 1]
-    bm25_normalized = normalize_bm25_scores(bm25_results)
-
-    # Create lookup dict for BM25 scores by metadata index
-    bm25_score_map: dict[int, float] = {idx: score for idx, score in bm25_normalized}
-
-    # Build fused results
-    fused_results: list[FaissResult] = []
-
-    for faiss_idx, faiss_result in enumerate(faiss_results):
-        # Get FAISS score (already normalized, typically in [0.5, 1.0] for cosine)
-        faiss_score = float(faiss_result.get("score", 0.0))
-
-        # Normalize FAISS scores to [0, 1] (assuming cosine similarity range)
-        # Cosine similarity for relevant docs is typically [0.5, 1.0]
-        # Map [0.5, 1.0] → [0.0, 1.0]
-        faiss_score_normalized = max(0.0, (faiss_score - 0.5) * 2.0)
-        faiss_score_normalized = min(1.0, faiss_score_normalized)
-
-        # Try to match with BM25 result
-        # The challenge: FAISS results come from query_rag's all_results dict
-        # which uses metadata indices as keys. We need to reconstruct that mapping.
-        # Since we don't have direct access to the metadata index here,
-        # we fall back to positional matching (enumeration index).
-        # A more robust solution would pass metadata indices explicitly
-
-        # Get BM25 score (default to 0 if not found)
-        bm25_score = bm25_score_map.get(faiss_idx, 0.0)
-
-        # Compute fused score
-        fused_score = alpha * faiss_score_normalized + (1 - alpha) * bm25_score
-
-        # Create fused result
-        fused: FaissResult = faiss_result.copy()
-        fused["faiss_score"] = faiss_score
-        fused["bm25_score"] = bm25_score
-        fused["fused_score"] = fused_score
-        fused["score"] = fused_score  # Update main score field
-
-        fused_results.append(fused)
-
-    # Sort by fused score (descending)
-    fused_results.sort(key=itemgetter("fused_score"), reverse=True)
-
-    logger.debug(
-        f"Fused {len(faiss_results)} FAISS + {len(bm25_results)} BM25 results "
-        + f"(alpha={alpha}) → {len(fused_results)} results"
-    )
-
-    return fused_results

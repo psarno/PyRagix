@@ -134,6 +134,7 @@ def query_rag(
                         chunk_idx=meta.chunk_index,
                         score=score,
                         text=meta.text,
+                        metadata_idx=idx,  # Capture metadata index
                     )
 
         sources_info: list[SearchResult] = list(all_results.values())
@@ -162,21 +163,11 @@ def query_rag(
                     alpha = config_obj.hybrid_alpha
 
                     for faiss_result in sources_info:
-                        meta_idx: int | None = None
-                        for idx, meta in enumerate(metadata):
-                            if (
-                                meta.source == faiss_result.source
-                                and meta.chunk_index == faiss_result.chunk_idx
-                            ):
-                                meta_idx = idx
-                                break
-
+                        # Direct O(1) lookup using captured metadata_idx
                         faiss_score = faiss_result.score
                         faiss_normalized = max(0.0, min(1.0, (faiss_score - 0.5) * 2.0))
-                        bm25_score = (
-                            bm25_score_map.get(meta_idx, 0.0)
-                            if meta_idx is not None
-                            else 0.0
+                        bm25_score = bm25_score_map.get(
+                            faiss_result.metadata_idx, 0.0
                         )
                         fused_score = (
                             alpha * faiss_normalized + (1 - alpha) * bm25_score

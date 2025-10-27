@@ -94,6 +94,9 @@ class SearchResult(BaseModel):
     chunk_idx: int = Field(ge=0, description="Chunk index within the source")
     score: float = Field(description="Relevance score (higher is better)")
     text: str = Field(description="Retrieved text content")
+    metadata_idx: int = Field(
+        ge=0, description="Index in metadata list (for BM25 matching)"
+    )
 
     # Optional fields for hybrid search
     faiss_score: float | None = Field(
