@@ -1,7 +1,7 @@
 from typing import Any
 
 from classes.ProcessingConfig import ProcessingConfig
-from ingestion.text_processing import _safe_dpi_for_page
+from ingestion.text_processing import safe_dpi_for_page
 
 
 class _Rect:
@@ -76,7 +76,7 @@ def test_safe_dpi_respects_max_pixels() -> None:
     cfg = ProcessingConfig()
     page = _Page(rect=_Rect(width=612, height=792))  # Letter size in points
 
-    dpi = _safe_dpi_for_page(
+    dpi = safe_dpi_for_page(
         page,
         cfg,
         max_pixels=1_000_000,
@@ -95,7 +95,7 @@ def test_safe_dpi_caps_long_side() -> None:
     cfg = ProcessingConfig()
     page = _Page(rect=_Rect(width=720, height=720))  # 10"x10" square in points
 
-    dpi = _safe_dpi_for_page(
+    dpi = safe_dpi_for_page(
         page,
         cfg,
         max_pixels=50_000_000,
@@ -114,7 +114,7 @@ def test_safe_dpi_never_below_72() -> None:
     cfg = ProcessingConfig()
     page = _Page(rect=_Rect(width=2880, height=2880))  # 40"x40" square in points
 
-    dpi = _safe_dpi_for_page(
+    dpi = safe_dpi_for_page(
         page,
         cfg,
         max_pixels=10_000_000,

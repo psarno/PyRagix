@@ -105,7 +105,7 @@ def _html_to_text(path: str) -> str:
     return soup.get_text(separator="\n")
 
 
-def _safe_dpi_for_page(
+def safe_dpi_for_page(
     page: Any,  # fitz.Page - C++ binding, protocol match too strict
     cfg: ProcessingConfig,
     *,
@@ -157,7 +157,7 @@ def _pdf_page_text_or_ocr(
         if embedded.strip():
             return embedded
 
-    dpi = _safe_dpi_for_page(
+    dpi = safe_dpi_for_page(
         page,
         cfg,
         max_pixels=cfg.max_pixels,
