@@ -1,5 +1,8 @@
 """CLI entrypoint for querying the RAG system."""
 
+from __future__ import annotations
+
+import io
 import sys
 import traceback
 from typing import TYPE_CHECKING
@@ -17,6 +20,30 @@ if TYPE_CHECKING:
 
 _load_rag_system = load_rag_system
 _validate_config = validate_config
+
+
+def _ensure_utf8_stdio() -> None:
+    """Force UTF-8 encoding for Windows Git Bash consoles."""
+    if sys.platform != "win32" or "pytest" in sys.modules:
+        return
+
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None:
+            continue
+        buffer = getattr(stream, "buffer", None)
+        if buffer is None:
+            continue
+        try:
+            wrapper = io.TextIOWrapper(
+                buffer,
+                encoding="utf-8",
+                errors="replace",
+                line_buffering=True,
+            )
+        except (LookupError, OSError, ValueError):
+            continue
+        setattr(sys, stream_name, wrapper)
 
 
 def _query_rag(
@@ -44,6 +71,8 @@ def _query_rag(
 
 def main(config: RAGConfig | None = None) -> None:
     """Main function to run the RAG query system."""
+    _ensure_utf8_stdio()
+
     if config is None:
         config = DEFAULT_CONFIG.model_copy()
 
