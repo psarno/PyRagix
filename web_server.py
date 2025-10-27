@@ -322,7 +322,11 @@ def _query_rag_with_sources(
     show_sources: bool = True,
     debug: bool = False,
 ) -> tuple[str | None, list[SearchResult]]:
-    """Modified version of _query_rag that returns sources separately."""
+    """Modified version of _query_rag that returns sources separately.
+
+    Args:
+        show_sources: Whether to include sources in the response.
+    """
     import numpy as np
 
     if not query.strip():
@@ -365,6 +369,7 @@ def _query_rag_with_sources(
                     chunk_idx=chunk_idx,
                     score=float(score_raw),
                     text=text,
+                    metadata_idx=idx_int,
                 )
             )
 
@@ -374,7 +379,9 @@ def _query_rag_with_sources(
         # Generate answer using Ollama
         answer = generate_answer_with_ollama(query, context_chunks, config)
 
-        return answer, sources_info
+        # Return sources only if requested
+        returned_sources = sources_info if show_sources else []
+        return answer, returned_sources
 
     except Exception as e:
         if debug:
