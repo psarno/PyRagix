@@ -69,7 +69,8 @@ def print_summary(
     if skip_reasons:
         print("📊 Skip breakdown:")
         for reason, count in sorted(skip_reasons.items()):
-            print(f"   • {reason}: {count}")
+            plural = "files" if count != 1 else "file"
+            print(f"   • {count} {plural} skipped due to {reason}")
 
     print(f"📝  Index: {cfg.index_path}")
     print(f"📝 Database: {cfg.db_path}")
