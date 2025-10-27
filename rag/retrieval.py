@@ -5,12 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
 from sentence_transformers import SentenceTransformer
 
 import config
 from rag.embeddings import (
-    FloatArray,
     get_sentence_encoder,
     l2_normalize,
     memory_cleanup,
@@ -100,19 +98,20 @@ def query_rag(
         encode_queries = get_sentence_encoder(embedder)
         all_results: dict[int, SearchResult] = {}
 
-        for query_variant in queries_to_search:
-            with memory_cleanup():
-                query_emb: FloatArray = encode_queries(
-                    [query_variant],
-                    convert_to_numpy=True,
-                    normalize_embeddings=False,
-                )
-                query_emb_array: FloatArray = np.asarray(query_emb, dtype=np.float32)
-                query_emb_normalized = l2_normalize(query_emb_array)
+        # Batch encode all query variants at once for better performance
+        with memory_cleanup():
+            all_query_embs = encode_queries(
+                queries_to_search,
+                convert_to_numpy=True,
+                normalize_embeddings=False,
+            )
+            all_query_embs_normalized = l2_normalize(all_query_embs)
 
-                distances, labels = index.search(query_emb_normalized, retrieval_k)
-                scores = distances
-                indices = labels
+        for i in range(len(queries_to_search)):
+            query_emb_normalized = all_query_embs_normalized[i : i + 1]
+            distances, labels = index.search(query_emb_normalized, retrieval_k)
+            scores = distances
+            indices = labels
 
             for score_raw, idx_raw in zip(scores[0], indices[0]):
                 idx = int(idx_raw)
@@ -120,10 +119,13 @@ def query_rag(
                     continue
 
                 if idx >= len(metadata):
-                    print(
-                        f"⚠️ Invalid index {idx} (metadata has {len(metadata)} entries)"
+                    error_msg = (
+                        f"FAISS index corruption: index {idx} >= metadata size {len(metadata)}. "
+                        f"FAISS and metadata are out of sync. Rebuild your index."
                     )
-                    continue
+                    import logging
+                    logging.getLogger(__name__).error(error_msg)
+                    raise IndexError(error_msg)
 
                 meta = metadata[idx]
                 score = float(score_raw)
