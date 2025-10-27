@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, Any, cast
 import logging
 from operator import attrgetter
@@ -23,6 +22,33 @@ if TYPE_CHECKING:
 
 
 class _CrossEncoder(Protocol):
+    """Structural type for cross-encoder reranking models (sentence-transformers CrossEncoder).
+
+    Defines the interface for scoring query-document pairs to measure semantic relevance.
+    The actual implementation is CrossEncoder from the sentence-transformers library.
+
+    Used by Reranker to score retrieved documents against a query, allowing precise
+    relevance ranking. Unlike FAISS (bi-encoder, pre-computed embeddings), cross-encoders
+    evaluate the pair directly, providing more accurate relevance scores.
+
+    Design rationale: Protocol for the sentence-transformers library's CrossEncoder class.
+    Prefixed with underscore (_CrossEncoder) because it's an internal implementation detail
+    of the Reranker class, not a public API. Structural typing allows us to type the
+    scoring interface without modifying or inheriting from sentence-transformers.
+
+    Note: This is lazy-loaded in Reranker._load_model() to save memory until reranking
+    is actually needed.
+
+    Workflow:
+    1. FAISS retrieves top-20 candidates (fast, approximate bi-encoder)
+    2. CrossEncoder scores all 20 pairs: (query, document)
+    3. Results reranked by cross-encoder score → top-7 for LLM
+
+    Usage (internal in Reranker):
+        model: _CrossEncoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        pairs = [(query, doc.text) for doc in results]
+        scores: Sequence[float] = model.predict(pairs)
+    """
     def predict(
         self,
         sentences: Sequence[tuple[str, str]],

@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import Any, Protocol
 import pickle
 import logging
@@ -37,6 +36,23 @@ Bm25Result = tuple[int, float]
 
 
 class _BM25Scorer(Protocol):
+    """Structural type for BM25 scoring models (rank-bm25's BM25Okapi).
+
+    Defines the interface for querying a BM25 index with tokenized queries to get
+    relevance scores. The actual implementation is BM25Okapi from the rank-bm25 library.
+
+    Design rationale: Protocol for the rank-bm25 third-party library's BM25Okapi class.
+    Prefixed with underscore (_BM25Scorer) because it's an internal implementation detail
+    of this module, not a public API. Structural typing allows us to type the scorer
+    without modifying or inheriting from rank-bm25.
+
+    Note: This is a low-level protocol used only within BM25Index to type the internal
+    _bm25 field. End users interact with BM25Index.search() which handles tokenization.
+
+    Usage (internal):
+        self._bm25: _BM25Scorer | None = BM25Okapi(tokenized_corpus)
+        scores: list[float] = self._bm25.get_scores(tokenized_query)
+    """
     def get_scores(self, query: Sequence[str]) -> list[float]: ...
 
 
@@ -317,7 +333,7 @@ def fuse_scores(
     fused_results.sort(key=itemgetter("fused_score"), reverse=True)
 
     logger.debug(
-        f"Fused {len(faiss_results)} FAISS + {len(bm25_results)} BM25 results "
+        f"Fused {len(faiss_results)} FAISS + {len(bm25_results)} BM25 results " +
         f"(alpha={alpha}) → {len(fused_results)} results"
     )
 

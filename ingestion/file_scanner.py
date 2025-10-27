@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import os
 import traceback
@@ -254,12 +252,12 @@ class FileScanner:
                         filename = os.path.basename(path)
                         if file_hash:
                             with open(cfg.processed_log, "a", encoding="utf-8") as handle:
-                                handle.write(f"{file_hash}|{filename}\n")
+                                _ = handle.write(f"{file_hash}|{filename}\n")
 
                     if file_count % cfg.top_print_every == 0:
                         print(
-                            "⚙️ Processed "
-                            f"{file_count} files | total chunks: {chunk_total} | "
+                            "⚙️ Processed " +
+                            f"{file_count} files | total chunks: {chunk_total} | " +
                             f"already done: {skipped_already_processed} | problems: {skipped_problems}"
                         )
 
@@ -272,13 +270,13 @@ class FileScanner:
                     )
 
                     with open(config.CRASH_LOG_FILE, "a", encoding="utf-8") as handle:
-                        handle.write(f"\n{'='*60}\n")
-                        handle.write(f"CRASHED FILE: {path}\n")
-                        handle.write(f"ERROR TYPE: {error_type}\n")
-                        handle.write(f"ERROR: {error_msg}\n")
-                        handle.write("TRACEBACK:\n")
-                        handle.write(traceback.format_exc())
-                        handle.write(f"\n{'='*60}\n")
+                        _ = handle.write(f"\n{'='*60}\n")
+                        _ = handle.write(f"CRASHED FILE: {path}\n")
+                        _ = handle.write(f"ERROR TYPE: {error_type}\n")
+                        _ = handle.write(f"ERROR: {error_msg}\n")
+                        _ = handle.write("TRACEBACK:\n")
+                        _ = handle.write(traceback.format_exc())
+                        _ = handle.write(f"\n{'='*60}\n")
 
                     skip_reasons[error_type] = skip_reasons.get(error_type, 0) + 1
                     self._env.cleanup()

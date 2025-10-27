@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from ingestion.cli import main as _cli_main
 from ingestion.environment import EnvironmentManager
 from ingestion.pipeline import build_index

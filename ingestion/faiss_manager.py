@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from pathlib import Path
 from typing import Any
@@ -106,7 +104,7 @@ class FaissManager:
             logger.info(
                 f"🎯 Training IVF index with {num_vectors} vectors, {nlist} clusters..."
             )
-            index.train(training_data)
+            _ = index.train(training_data)
             logger.info("✅ IVF index training completed")
             return True
         except (RuntimeError, ValueError) as exc:
@@ -196,7 +194,7 @@ class FaissManager:
         try:
             gpu_res = faiss.StandardGpuResources()
             test_index = faiss.IndexFlatIP(384)
-            faiss.index_cpu_to_gpu(gpu_res, config.GPU_DEVICE, test_index)
+            _ = faiss.index_cpu_to_gpu(gpu_res, config.GPU_DEVICE, test_index)
             del gpu_res, test_index
             self._gpu_functions_available = True
             return True, f"GPU {config.GPU_DEVICE} available and working"
@@ -213,7 +211,7 @@ class FaissManager:
             gpu_res.setTempMemoryFraction(config.GPU_MEMORY_FRACTION)
 
             logger.info(
-                "🎮 GPU resources initialized "
+                "🎮 GPU resources initialized " +
                 f"(device {config.GPU_DEVICE}, memory fraction: {config.GPU_MEMORY_FRACTION})"
             )
             return gpu_res

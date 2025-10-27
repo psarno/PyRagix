@@ -8,7 +8,6 @@
 # ===============================
 # Standard Library
 # ===============================
-from __future__ import annotations
 
 import traceback
 from pathlib import Path

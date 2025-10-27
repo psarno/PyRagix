@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from pathlib import Path
 from typing import Any, Sequence, TypedDict, cast
@@ -98,7 +96,7 @@ def build_bm25_index(metadata: Sequence[MetadataDict]) -> None:
         print(f"✅ BM25 index saved: {bm25_path} ({len(bm25_index)} documents)")
     except ImportError:
         print(
-            "⚠️ BM25 indexing failed: rank-bm25 not installed. "
+            "⚠️ BM25 indexing failed: rank-bm25 not installed. " +
             "Run: uv add rank-bm25"
         )
     except Exception as exc:

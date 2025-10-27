@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -69,7 +67,7 @@ def test_document_extractor_handles_text_file(tmp_path: Path) -> None:
 
     # Create a mock text file (simulated as image for OCR)
     text_file = tmp_path / "test.png"
-    text_file.write_bytes(b"\x00\x01")  # Minimal PNG-like data
+    _ = text_file.write_bytes(b"\x00\x01")  # Minimal PNG-like data
 
     with patch("ingestion.file_scanner.extract_text") as mock_extract:
         mock_extract.return_value = "  Sample   text   with   spaces  "
@@ -88,7 +86,7 @@ def test_document_extractor_handles_empty_extraction(tmp_path: Path) -> None:
     extractor = DocumentExtractor(cfg, ocr)
 
     text_file = tmp_path / "empty.png"
-    text_file.write_bytes(b"\x00\x01")
+    _ = text_file.write_bytes(b"\x00\x01")
 
     with patch("ingestion.file_scanner.extract_text") as mock_extract:
         mock_extract.return_value = "   "
@@ -106,14 +104,14 @@ def test_document_extractor_handles_ocr_failure(tmp_path: Path) -> None:
     extractor = DocumentExtractor(cfg, ocr)
 
     text_file = tmp_path / "corrupt.png"
-    text_file.write_bytes(b"\x00\x01")
+    _ = text_file.write_bytes(b"\x00\x01")
 
     with patch("ingestion.file_scanner.extract_text") as mock_extract:
         mock_extract.side_effect = RuntimeError("OCR failed")
 
         # Should propagate the exception
         with pytest.raises(RuntimeError, match="OCR failed"):
-            extractor.extract(str(text_file))
+            _ = extractor.extract(str(text_file))
 
 
 def test_chunker_creates_fixed_size_chunks() -> None:
@@ -201,7 +199,7 @@ def test_document_extractor_and_chunker_orchestration(tmp_path: Path) -> None:
 
     # Create a test file
     test_file = tmp_path / "test.png"
-    test_file.write_bytes(b"\x00\x01")
+    _ = test_file.write_bytes(b"\x00\x01")
 
     with patch("ingestion.file_scanner.extract_text") as mock_extract:
         # Simulate extracted text with extra whitespace
@@ -248,7 +246,7 @@ def test_document_extractor_pdf_extraction(tmp_path: Path) -> None:
     extractor = DocumentExtractor(cfg, ocr)
 
     pdf_file = tmp_path / "test.pdf"
-    pdf_file.write_bytes(b"%PDF-1.4\n")  # Minimal PDF header
+    _ = pdf_file.write_bytes(b"%PDF-1.4\n")  # Minimal PDF header
 
     with patch("ingestion.file_scanner.extract_text") as mock_extract:
         mock_extract.return_value = "PDF content extracted"
@@ -266,7 +264,7 @@ def test_document_extractor_html_extraction(tmp_path: Path) -> None:
     extractor = DocumentExtractor(cfg, ocr)
 
     html_file = tmp_path / "test.html"
-    html_file.write_text("<html><body>HTML content</body></html>", encoding="utf-8")
+    _ = html_file.write_text("<html><body>HTML content</body></html>", encoding="utf-8")
 
     with patch("ingestion.file_scanner.extract_text") as mock_extract:
         mock_extract.return_value = "HTML content"

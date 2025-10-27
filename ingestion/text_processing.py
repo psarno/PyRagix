@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import math
 from io import BytesIO
@@ -103,7 +101,7 @@ def _html_to_text(path: str) -> str:
         soup = BeautifulSoup(resource, parser)
 
     for tag in soup(["script", "style", "noscript"]):
-        tag.extract()
+        _ = tag.extract()
     return soup.get_text(separator="\n")
 
 

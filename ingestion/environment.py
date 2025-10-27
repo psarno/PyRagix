@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import gc
 import logging
 import os
@@ -96,7 +94,7 @@ class EnvironmentManager:
 
     def cleanup(self) -> None:
         """Force garbage collection and CUDA memory cleanup."""
-        gc.collect()
+        _ = gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 

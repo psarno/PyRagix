@@ -1,7 +1,5 @@
 """Load FAISS index, metadata, and embedding model."""
 
-from __future__ import annotations
-
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
@@ -54,7 +52,7 @@ def load_rag_system(
 
         if index.ntotal != len(metadata):
             raise ValueError(
-                f"Index/metadata mismatch: {index.ntotal} vectors vs "
+                f"Index/metadata mismatch: {index.ntotal} vectors vs " +
                 f"{len(metadata)} metadata entries"
             )
 
@@ -69,12 +67,12 @@ def load_rag_system(
         if index_type == "IVF":
             nprobe = getattr(index, "nprobe", "unknown")
             print(
-                f"Loaded {index.ntotal} chunks from {unique_sources} files "
+                f"Loaded {index.ntotal} chunks from {unique_sources} files " +
                 f"(IVF index on {device_info}, nprobe={nprobe})"
             )
         else:
             print(
-                f"Loaded {index.ntotal} chunks from {unique_sources} files "
+                f"Loaded {index.ntotal} chunks from {unique_sources} files " +
                 f"(Flat index on {device_info})"
             )
 

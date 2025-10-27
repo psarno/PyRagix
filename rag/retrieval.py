@@ -1,7 +1,5 @@
 """Query pipeline: retrieval, hybrid fusion, reranking, and generation."""
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -195,7 +193,7 @@ def query_rag(
 
                     if debug:
                         print(
-                            f"   Fused with alpha={alpha} "
+                            f"   Fused with alpha={alpha} " +
                             f"(semantic={alpha}, keyword={1 - alpha})"
                         )
 
@@ -239,7 +237,7 @@ def query_rag(
             for i, info in enumerate(sources_info, start=1):
                 source_path = Path(info.source)
                 print(
-                    f"{i}. {source_path.name} "
+                    f"{i}. {source_path.name} " +
                     f"(chunk {info.chunk_idx}, score: {info.score:.3f})"
                 )
             print("-" * 60)

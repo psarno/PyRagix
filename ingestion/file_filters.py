@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import hashlib
 import logging
 import os
@@ -113,7 +111,7 @@ def load_processed_files(cfg: ProcessingConfig) -> set[str]:
             lines = [line.strip() for line in handle if line.strip()]
         with open(log_path, "w", encoding="utf-8") as handle:
             for line in lines:
-                handle.write(f"{line}\n")
+                _ = handle.write(f"{line}\n")
         return load_processed_files(cfg)
 
     return processed_hashes
@@ -228,7 +226,7 @@ def clean_stale_entries(stale_files: list[str], cfg: ProcessingConfig) -> None:
 
             with open(log_path, "w", encoding="utf-8") as handle:
                 for entry in valid_entries:
-                    handle.write(f"{entry}\n")
+                    _ = handle.write(f"{entry}\n")
 
             print(f"   Cleaned processed files log ({len(valid_entries)} entries remain)")
         except (OSError, UnicodeDecodeError) as exc:
@@ -254,7 +252,7 @@ def clean_stale_entries(stale_files: list[str], cfg: ProcessingConfig) -> None:
             if stale_sources:
                 placeholders = ",".join(["?" for _ in stale_sources])
                 query = f"DELETE FROM chunks WHERE source IN ({placeholders})"
-                db.execute(query, stale_sources)
+                _ = db.execute(query, stale_sources)
 
                 cursor: Cursor = db.execute("SELECT changes()")
                 row = cursor.fetchone()

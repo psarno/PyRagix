@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 from classes.ProcessingConfig import ProcessingConfig
@@ -19,7 +17,7 @@ def _make_config() -> ProcessingConfig:
 def test_should_skip_file_honors_skip_list(tmp_path: Path) -> None:
     cfg = _make_config()
     sample = tmp_path / "skipme.txt"
-    sample.write_text("data", encoding="utf-8")
+    _ = sample.write_text("data", encoding="utf-8")
 
     skip, reason = should_skip_file(str(sample), ".txt", set(), cfg)
 
@@ -30,7 +28,7 @@ def test_should_skip_file_honors_skip_list(tmp_path: Path) -> None:
 def test_should_skip_file_detects_processed_hash(tmp_path: Path) -> None:
     cfg = _make_config()
     sample = tmp_path / "doc.txt"
-    sample.write_text("docs", encoding="utf-8")
+    _ = sample.write_text("docs", encoding="utf-8")
 
     processed = {calculate_file_hash(str(sample))}
 
@@ -45,7 +43,7 @@ def test_should_skip_file_respects_extension_filters(tmp_path: Path) -> None:
     cfg.allowed_extensions = {".txt"}
 
     sample = tmp_path / "image.png"
-    sample.write_bytes(b"\x00\x01")
+    _ = sample.write_bytes(b"\x00\x01")
 
     skip, reason = should_skip_file(str(sample), ".png", set(), cfg)
 

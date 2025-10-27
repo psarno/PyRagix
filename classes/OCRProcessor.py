@@ -25,7 +25,7 @@ base = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
 for sub in ["cudnn", "cublas", "cufft", "curand", "cusolver", "cusparse", "cuda_runtime"]:
     bin_path = os.path.join(base, sub, "bin")
     if os.path.isdir(bin_path):
-        os.add_dll_directory(bin_path)
+        _ = os.add_dll_directory(bin_path)
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ class OCRProcessor:
 
     def _cleanup_memory(self) -> None:
         """Force garbage collection to free up memory."""
-        gc.collect()
+        _ = gc.collect()
         # Clear Paddle's memory cache if available
         try:
             paddle.device.cuda.empty_cache()

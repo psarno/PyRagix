@@ -1,6 +1,5 @@
 """LLM interaction helpers."""
 
-from __future__ import annotations
 from textwrap import dedent
 
 import requests

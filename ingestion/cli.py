@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import argparse
 from io import TextIOWrapper
 import os
@@ -18,30 +16,30 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Ingest folder -> FAISS (PDF/HTML/Images with OCR fallback)"
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "folder",
         nargs="?",
         default=".",
         help="Root folder of documents to process (default: current directory)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--fresh",
         action="store_true",
         help="Start from scratch, clearing existing index and processed files log",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--no-recurse",
         action="store_true",
         help="Only process files in the root folder, skip subdirectories",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--filetypes",
         type=str,
         help="Comma-separated list of file extensions to process (e.g., 'pdf,png,jpg').",
     )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    os.system("cls" if os.name == "nt" else "clear")
+    _ = os.system("cls" if os.name == "nt" else "clear")
 
     print(f"Using settings from {config.SETTINGS_FILE}")
 

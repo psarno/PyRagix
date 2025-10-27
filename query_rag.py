@@ -1,7 +1,5 @@
 """CLI entrypoint for querying the RAG system."""
 
-from __future__ import annotations
-
 import sys
 import traceback
 from typing import TYPE_CHECKING
@@ -70,7 +68,7 @@ def main(config: RAGConfig | None = None) -> None:
             if not query:
                 continue
 
-            _query_rag(
+            _ = _query_rag(
                 query, index, metadata, embedder, config, show_sources=True, debug=True
             )
 

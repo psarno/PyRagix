@@ -115,7 +115,7 @@ class ProcessingConfig:
             supported_list = sorted([ext.lstrip('.') for ext in self.doc_extensions])
             unsupported_list = sorted([ext.lstrip('.') for ext in unsupported])
             raise ValueError(
-                f"Unsupported file types: {', '.join(unsupported_list)}. "
+                f"Unsupported file types: {', '.join(unsupported_list)}. " +
                 f"Supported types: {', '.join(supported_list)}"
             )
         
