@@ -18,17 +18,14 @@
   "stubPath": "typings",
   "pythonVersion": "3.13",
   "typeCheckingMode": "strict",
-
   "strictListInference": true,
   "strictDictionaryInference": true,
   "strictSetInference": true,
   "analyzeUnannotatedFunctions": true,
   "strictParameterNoneValue": true,
   "enableTypeIgnoreComments": true,
-  "deprecateTypingAliases": true,
   "enableReachabilityAnalysis": true,
   "disableBytesTypePromotions": true,
-
   "reportMissingImports": "error",
   "reportMissingTypeStubs": "error",
   "reportMissingModuleSource": "error",
@@ -105,7 +102,6 @@
   "reportUnreachable": "warning",
   "reportImplicitOverride": "warning",
   "deprecateTypingAliases": false,
-
   "useLibraryCodeForTypes": true,
   "executionEnvironments": [
     {
