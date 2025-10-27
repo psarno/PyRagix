@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -22,9 +22,10 @@ from utils.reranker import Reranker
 
 if TYPE_CHECKING:
     import faiss
+    from utils.bm25_index import BM25Index
 
 _reranker: Reranker | None = None
-_bm25_index: Any | None = None  # utils.bm25_index.BM25Index
+_bm25_index: BM25Index | None = None
 
 
 def _get_reranker() -> Reranker:
@@ -34,7 +35,7 @@ def _get_reranker() -> Reranker:
     return _reranker
 
 
-def _get_bm25_index() -> Any | None:
+def _get_bm25_index() -> BM25Index | None:
     global _bm25_index
 
     if not config.ENABLE_HYBRID_SEARCH:
@@ -127,10 +128,10 @@ def query_rag(
 
                 if idx not in all_results or score > all_results[idx].score:
                     all_results[idx] = SearchResult(
-                        source=meta["source"],
-                        chunk_idx=meta["chunk_index"],
+                        source=meta.source,
+                        chunk_idx=meta.chunk_index,
                         score=score,
-                        text=meta["text"],
+                        text=meta.text,
                     )
 
         sources_info: list[SearchResult] = list(all_results.values())
@@ -162,8 +163,8 @@ def query_rag(
                         meta_idx: int | None = None
                         for idx, meta in enumerate(metadata):
                             if (
-                                meta["source"] == faiss_result.source
-                                and meta["chunk_index"] == faiss_result.chunk_idx
+                                meta.source == faiss_result.source
+                                and meta.chunk_index == faiss_result.chunk_idx
                             ):
                                 meta_idx = idx
                                 break

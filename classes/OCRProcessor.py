@@ -9,7 +9,7 @@ import math
 import os
 import sys
 from io import BytesIO
-from typing import Any, TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import fitz  # PyMuPDF
 import numpy as np
@@ -19,6 +19,7 @@ from paddleocr import PaddleOCR
 
 if TYPE_CHECKING:
     from classes.ProcessingConfig import ProcessingConfig
+    from ingestion.models import PDFDocument, PDFPage, PILImage
 
 base = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
 for sub in ["cudnn", "cublas", "cufft", "curand", "cusolver", "cusparse", "cuda_runtime"]:
@@ -66,7 +67,7 @@ class OCRProcessor:
             # Not using CUDA or method not available
             pass
 
-    def ocr_pil_image(self, pil_img: Any) -> str:
+    def ocr_pil_image(self, pil_img: "PILImage") -> str:
         """Extract text from PIL image using OCR."""
         try:
             # Convert and process
@@ -94,7 +95,7 @@ class OCRProcessor:
 
     def ocr_page_tiled(
         self,
-        page: Any,
+        page: "PDFPage",
         dpi: int,
         tile_px: int | None = None,
         overlap: int | None = None,
@@ -179,11 +180,11 @@ class OCRProcessor:
 
         return "\n".join(texts)
 
-    def ocr_embedded_images(self, doc: Any, page: Any) -> str:
+    def ocr_embedded_images(self, doc: "PDFDocument", page: "PDFPage") -> str:
         """Extract text from embedded images in PDF page."""
         out: list[str] = []
         try:
-            imgs = cast(list[ImageInfo], page.get_images(full=True) or [])
+            imgs = page.get_images(full=True) or []
             for xref, *_ in imgs:
                 try:
                     img = doc.extract_image(xref)

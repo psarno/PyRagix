@@ -169,16 +169,15 @@ def create_embedding_visualization(
             if meta_idx < len(metadata):
                 meta = metadata[meta_idx]
                 score = retrieved_scores.get(meta_idx, 0.0)
-                text_raw = meta.get("text", "")
-                text = str(text_raw)
-                
+                text = meta.text
+
                 points.append({
                     "id": i,
                     "x": float(coords[0]),
-                    "y": float(coords[1]), 
+                    "y": float(coords[1]),
                     "z": float(coords[2]) if dimensions == 3 else None,
-                    "source": meta.get("source", "unknown"),
-                    "chunk_idx": meta.get("chunk_index", 0),
+                    "source": meta.source,
+                    "chunk_idx": meta.chunk_index,
                     "score": float(score),
                     "text": text[:200] + "..." if len(text) > 200 else text,
                     "is_query": False

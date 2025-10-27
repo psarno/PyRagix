@@ -6,15 +6,17 @@ used throughout the RAG system.
 """
 
 from pathlib import Path
-from typing import Any, TypedDict
-from pydantic import BaseModel, Field, field_validator
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class MetadataDict(TypedDict):
-    """Metadata dictionary structure for document chunks."""
-    source: str
-    chunk_index: int
-    text: str
+class MetadataDict(BaseModel):
+    """Metadata structure for document chunks with validation."""
+    source: str = Field(description="Source file path")
+    chunk_index: int = Field(ge=0, description="Chunk index within document")
+    text: str = Field(description="Text content of the chunk")
+
+    model_config = ConfigDict(frozen=True, validate_assignment=True)
 
 
 class RAGConfig(BaseModel):
@@ -43,11 +45,11 @@ class RAGConfig(BaseModel):
     hybrid_alpha: float = Field(default=0.7, ge=0.0, le=1.0, description="Weight for FAISS scores (0.7 = 70% semantic + 30% keyword)")
     bm25_index_path: str = Field(default="bm25_index.pkl", description="Path to BM25 index file")
 
-    model_config = {
-        "frozen": False,
-        "validate_assignment": True,
-        "arbitrary_types_allowed": True,
-    }
+    model_config = ConfigDict(
+        frozen=False,
+        validate_assignment=True,
+        arbitrary_types_allowed=True,
+    )
 
     @field_validator("index_path", "db_path", mode="before")
     @classmethod
@@ -71,10 +73,10 @@ class SearchResult(BaseModel):
     bm25_score: float | None = Field(default=None, description="BM25 keyword relevance score")
     fused_score: float | None = Field(default=None, description="Final fused score from hybrid search")
 
-    model_config = {
-        "frozen": False,
-        "validate_assignment": False,  # Allow dynamic score assignment
-    }
+    model_config = ConfigDict(
+        frozen=False,
+        validate_assignment=False,  # Allow dynamic score assignment
+    )
 
 
 class DocumentChunk(BaseModel):
@@ -85,10 +87,10 @@ class DocumentChunk(BaseModel):
     text_content: str = Field(description="Chunk text content")
     embedding_vector: list[float] | None = Field(default=None, description="Embedding vector")
 
-    model_config = {
-        "frozen": False,
-        "arbitrary_types_allowed": True,
-    }
+    model_config = ConfigDict(
+        frozen=False,
+        arbitrary_types_allowed=True,
+    )
 
 
 class QueryExpansionResult(BaseModel):
@@ -98,9 +100,7 @@ class QueryExpansionResult(BaseModel):
     expanded_queries: list[str] = Field(description="List of expanded/paraphrased queries")
     expansion_method: str = Field(default="ollama", description="Method used for expansion")
 
-    model_config = {
-        "frozen": True,
-    }
+    model_config = ConfigDict(frozen=True)
 
 
 class RerankingResult(BaseModel):
@@ -111,9 +111,7 @@ class RerankingResult(BaseModel):
     reranked_count: int = Field(ge=0, description="Number of results after reranking")
     reranker_model: str = Field(description="Reranker model used")
 
-    model_config = {
-        "frozen": True,
-    }
+    model_config = ConfigDict(frozen=True)
 
 
 # Legacy support: provide dict-compatible types for existing code

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Protocol, Sequence, cast
+from typing import Protocol, Sequence, cast, Generator
 
 import numpy as np
 import numpy.typing as npt
@@ -23,7 +23,7 @@ class SentenceEncoder(Protocol):
 
 
 @contextmanager
-def memory_cleanup():
+def memory_cleanup() -> Generator[None, None, None]:
     """Ensure large intermediate tensors are promptly released."""
     try:
         yield

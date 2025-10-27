@@ -1,27 +1,41 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
+from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
 from classes.ProcessingConfig import ProcessingConfig
 from ingestion.file_scanner import Chunker, DocumentExtractor
 
+if TYPE_CHECKING:
+    from ingestion.models import PDFDocument, PDFPage, PILImage
+
 
 class MockOCRProcessor:
     """Mock OCR processor for testing."""
 
+    def __init__(self, config: ProcessingConfig | None = None) -> None:
+        """Initialize mock OCR processor."""
+        self.config = config or ProcessingConfig()
+
     def extract_from_image(self, path: str) -> str:
         return "Mocked OCR text"
 
-    def ocr_embedded_images(self, doc: object, page: object) -> str:
+    def ocr_embedded_images(self, doc: PDFDocument, page: PDFPage) -> str:
         return ""
 
-    def ocr_pil_image(self, image: object) -> str:
+    def ocr_pil_image(self, pil_img: PILImage) -> str:
         return "Mocked PIL OCR"
 
-    def ocr_page_tiled(self, page: object, dpi: int) -> str:
+    def ocr_page_tiled(
+        self,
+        page: PDFPage,
+        dpi: int,
+        tile_px: int | None = None,
+        overlap: int | None = None,
+    ) -> str:
         return "Mocked tiled OCR"
 
 

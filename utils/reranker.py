@@ -117,7 +117,7 @@ class Reranker:
             logger.error(f"Reranking failed: {e}, returning original results")
             return results
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup on deletion."""
         if self._model is not None:
             del self._model

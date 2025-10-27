@@ -352,9 +352,9 @@ def _query_rag_with_sources(
                 continue
 
             meta: MetadataDict = metadata[idx_int]
-            source = str(meta["source"])
-            chunk_idx = int(meta["chunk_index"])
-            text = str(meta["text"])
+            source = str(meta.source)
+            chunk_idx = int(meta.chunk_index)
+            text = str(meta.text)
 
             context_chunks.append(text)
             sources_info.append(
@@ -501,7 +501,7 @@ if web_dir.exists():
 # ===============================
 # Server Entry Point
 # ===============================
-def main():
+def main() -> None:
     """Run the FastAPI server."""
     print("🌐 Starting RAG Web Server...")
     print("📖 Web interface will be available at: http://localhost:8000/web/")

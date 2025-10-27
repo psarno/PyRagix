@@ -39,11 +39,11 @@ def load_metadata(db_path: Path) -> list[MetadataDict]:
     for row in chunks_table.rows():
         try:
             records.append(
-                {
-                    "source": str(row["source"]),
-                    "chunk_index": int(row["chunk_index"]),
-                    "text": str(row["text"]),
-                }
+                MetadataDict(
+                    source=str(row["source"]),
+                    chunk_index=int(row["chunk_index"]),
+                    text=str(row["text"]),
+                )
             )
         except KeyError:
             continue
@@ -86,7 +86,7 @@ def build_bm25_index(metadata: Sequence[MetadataDict]) -> None:
     try:
         from utils.bm25_index import build_bm25_index as build, save_bm25_index
 
-        texts = [meta["text"] for meta in metadata]
+        texts = [meta.text for meta in metadata]
         if not texts:
             print("⚠️ BM25 indexing skipped: no chunk metadata available.")
             logger.info("BM25 indexing skipped because metadata list is empty")

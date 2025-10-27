@@ -1,20 +1,70 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Any
 
 from classes.ProcessingConfig import ProcessingConfig
 from ingestion.text_processing import _safe_dpi_for_page
 
 
-@dataclass
 class _Rect:
-    width: float
-    height: float
+    """Mock PDF rectangle for testing."""
+
+    def __init__(self, width: float, height: float) -> None:
+        self._width = width
+        self._height = height
+
+    @property
+    def x0(self) -> float:
+        return 0.0
+
+    @property
+    def y0(self) -> float:
+        return 0.0
+
+    @property
+    def x1(self) -> float:
+        return self._width
+
+    @property
+    def y1(self) -> float:
+        return self._height
+
+    @property
+    def width(self) -> float:
+        return self._width
+
+    @property
+    def height(self) -> float:
+        return self._height
 
 
-@dataclass
 class _Page:
-    rect: _Rect
+    """Mock PDF page for testing."""
+
+    def __init__(self, rect: _Rect) -> None:
+        self._rect = rect
+
+    @property
+    def rect(self) -> _Rect:
+        return self._rect
+
+    def get_text(self, option: str = "text") -> str:
+        return ""
+
+    def get_pixmap(
+        self,
+        *,
+        matrix: Any = None,
+        dpi: int | None = None,
+        colorspace: Any = None,
+        clip: Any = None,
+        alpha: bool = False,
+        annots: bool = True,
+    ) -> Any:
+        return None
+
+    def get_images(self, full: bool = False) -> list[tuple[int, ...]]:
+        return []
 
 
 def _dimensions(page: _Page, dpi: int) -> tuple[float, float]:

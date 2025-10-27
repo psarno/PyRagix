@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 from venv import logger
 
 import psutil
@@ -14,9 +13,9 @@ class ProcessingConfig:
 
     # Supported file extensions
     doc_extensions: set[str] = field(default_factory=lambda: set())
-    
+
     # File type filtering (subset of doc_extensions)
-    allowed_extensions: Optional[set[str]] = None
+    allowed_extensions: set[str] | None = None
 
     # Text processing
     chunk_size: int = 1600  # characters
@@ -31,8 +30,8 @@ class ProcessingConfig:
     top_print_every: int = 5  # print every N files
 
     # Memory-based settings (set dynamically)
-    max_pixels: Optional[int] = None
-    tile_size: Optional[int] = None
+    max_pixels: int | None = None
+    tile_size: int | None = None
     max_side: int = 2000  # hard cap on either side
     tile_overlap: int = 40  # small overlap so words at tile edges aren't cut
     use_ocr_cls: bool = False  # angle classifier off to save memory
@@ -46,7 +45,7 @@ class ProcessingConfig:
     )  # Hard-coded list of files to skip
 
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.doc_extensions:
             self.doc_extensions = {
                 ".pdf",

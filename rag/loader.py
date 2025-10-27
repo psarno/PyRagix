@@ -14,11 +14,11 @@ import faiss
 
 
 def _row_to_metadata(row: Mapping[str, Any]) -> MetadataDict:
-    return {
-        "source": str(row["source"]),
-        "chunk_index": int(row["chunk_index"]),
-        "text": str(row["text"]),
-    }
+    return MetadataDict(
+        source=str(row["source"]),
+        chunk_index=int(row["chunk_index"]),
+        text=str(row["text"]),
+    )
 
 
 def load_rag_system(
@@ -58,7 +58,7 @@ def load_rag_system(
                 f"{len(metadata)} metadata entries"
             )
 
-        unique_sources = len(set(m["source"] for m in metadata))
+        unique_sources = len(set(m.source for m in metadata))
         index_type = "IVF" if hasattr(index, "nprobe") else "Flat"
         device_info = (
             "GPU"

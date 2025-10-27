@@ -4,7 +4,7 @@ import logging
 import math
 from io import BytesIO
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from bs4 import BeautifulSoup
 import fitz  # PyMuPDF
@@ -12,10 +12,7 @@ from PIL import Image
 
 import config
 from classes.ProcessingConfig import ProcessingConfig
-from ingestion.models import EmbeddingModel, PDFPage
-
-if TYPE_CHECKING:
-    from classes.OCRProcessor import OCRProcessor
+from ingestion.models import EmbeddingModel, OCRProcessorProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +80,7 @@ def chunk_text(
     return chunks
 
 
-def extract_text(path: str, ocr: OCRProcessor, cfg: ProcessingConfig) -> str:
+def extract_text(path: str, ocr: OCRProcessorProtocol, cfg: ProcessingConfig) -> str:
     """Extract text from PDF, HTML, or image sources."""
     ext = Path(path).suffix.lower()
     if ext == ".pdf":
@@ -111,7 +108,7 @@ def _html_to_text(path: str) -> str:
 
 
 def _safe_dpi_for_page(
-    page: PDFPage,
+    page: Any,  # fitz.Page - C++ binding, protocol match too strict
     cfg: ProcessingConfig,
     *,
     max_pixels: int | None = None,
@@ -147,11 +144,11 @@ def _safe_dpi_for_page(
 
 
 def _pdf_page_text_or_ocr(
-    page: Any,
-    ocr: OCRProcessor,
+    page: Any,  # fitz.Page - C++ binding, protocol match too strict
+    ocr: OCRProcessorProtocol,
     cfg: ProcessingConfig,
     *,
-    doc: Any | None = None,
+    doc: Any | None = None,  # fitz.Document - C++ binding, protocol match too strict
 ) -> str:
     text = page.get_text("text") or ""
     if len(text.strip()) > 20:
@@ -195,7 +192,7 @@ def _pdf_page_text_or_ocr(
     return ocr.ocr_page_tiled(page, dpi)
 
 
-def _extract_from_pdf(path: str, ocr: OCRProcessor, cfg: ProcessingConfig) -> str:
+def _extract_from_pdf(path: str, ocr: OCRProcessorProtocol, cfg: ProcessingConfig) -> str:
     pages: list[str] = []
     with fitz.open(path) as doc:
         for page in doc:

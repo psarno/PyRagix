@@ -49,7 +49,7 @@ def load_existing_index(
         index = ctx.faiss_manager.prepare_loaded_index(index)
 
         print(
-            f"   Loaded {index.ntotal} existing chunks from {len(set(m['source'] for m in metadata))} files"
+            f"   Loaded {index.ntotal} existing chunks from {len(set(m.source for m in metadata))} files"
         )
         return index, metadata
     return None, []

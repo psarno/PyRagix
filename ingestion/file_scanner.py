@@ -17,13 +17,13 @@ from ingestion.metadata_store import ChunkRecord, insert_chunk_records
 from ingestion.models import (
     EmbeddingModel,
     IngestionContext,
+    OCRProcessorProtocol,
     ProcessingResult,
     ProcessingStats,
 )
 from ingestion.text_processing import clean_text, chunk_text, extract_text
 from types_models import MetadataDict
 from classes.ProcessingConfig import ProcessingConfig
-from classes.OCRProcessor import OCRProcessor
 
 if TYPE_CHECKING:
     import faiss
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class DocumentExtractor:
     """High-level text extraction facade."""
 
-    def __init__(self, cfg: ProcessingConfig, ocr: OCRProcessor) -> None:
+    def __init__(self, cfg: ProcessingConfig, ocr: OCRProcessorProtocol) -> None:
         self._cfg = cfg
         self._ocr = ocr
 
@@ -174,7 +174,7 @@ class FileScanner:
                     "created_at": created_at,
                 }
             )
-            metadata_entries.append({"source": path, "chunk_index": i, "text": chunk})
+            metadata_entries.append(MetadataDict(source=path, chunk_index=i, text=chunk))
 
         metadata.extend(metadata_entries)
         insert_chunk_records(self._ctx.config.db_path, chunk_records)

@@ -16,32 +16,70 @@ else:  # pragma: no cover
 
 
 class PDFRect(Protocol):
-    x0: float
-    y0: float
-    x1: float
-    y1: float
-    width: float
-    height: float
+    @property
+    def x0(self) -> float: ...
+    @property
+    def y0(self) -> float: ...
+    @property
+    def x1(self) -> float: ...
+    @property
+    def y1(self) -> float: ...
+    @property
+    def width(self) -> float: ...
+    @property
+    def height(self) -> float: ...
 
 
 class PDFPixmap(Protocol):
     def getPNGdata(self) -> bytes: ...
 
+    def tobytes(self, output: str = ...) -> bytes: ...
+
+
+class PILImage(Protocol):
+    """Protocol for PIL Image objects.
+
+    Note: Intentionally loose to match both PIL Image types (Image, ImageFile, etc.)
+    """
+
+    @property
+    def width(self) -> int: ...
+
+    @property
+    def height(self) -> int: ...
+
+    def convert(self, mode: str | None = ..., matrix: Any = ..., dither: Any = ..., palette: Any = ..., colors: int = ...) -> Any: ...
+
+    def resize(self, size: tuple[int, int], resample: Any = ...) -> Any: ...
+
+    def close(self) -> None: ...
+
+    def thumbnail(self, size: tuple[int, int], resample: Any = ...) -> None: ...
+
 
 class PDFPage(Protocol):
-    rect: PDFRect
+    """Protocol for PyMuPDF (fitz) Page objects.
 
-    def get_text(self, output: str = ...) -> str: ...
+    Matches the actual fitz.Page API without extra flexibility.
+    """
+
+    @property
+    def rect(self) -> PDFRect: ...
+
+    def get_text(self, option: str = "text") -> str: ...
 
     def get_pixmap(
         self,
+        *,
         matrix: Any = ...,
+        dpi: int | None = None,
         colorspace: Any = ...,
-        alpha: bool = ...,
         clip: Any = ...,
+        alpha: bool = False,
+        annots: bool = True,
     ) -> PDFPixmap: ...
 
-    def get_images(self, full: bool = ...) -> list[tuple[int, ...]]: ...
+    def get_images(self, full: bool = False) -> list[tuple[int, ...]]: ...
 
 
 class PDFDocument(Protocol):
@@ -51,7 +89,23 @@ class PDFDocument(Protocol):
 
     def extract_image(self, xref: int) -> dict[str, Any] | None: ...
 
-    def widgets(self) -> list[Any]: ...
+
+class OCRProcessorProtocol(Protocol):
+    """Protocol for OCR processors to enable testing with mocks."""
+
+    def extract_from_image(self, path: str) -> str: ...
+
+    def ocr_embedded_images(self, doc: PDFDocument, page: PDFPage) -> str: ...
+
+    def ocr_pil_image(self, pil_img: PILImage) -> str: ...
+
+    def ocr_page_tiled(
+        self,
+        page: PDFPage,
+        dpi: int,
+        tile_px: int | None = None,
+        overlap: int | None = None,
+    ) -> str: ...
 
 
 class EmbeddingModel(Protocol):
@@ -90,7 +144,7 @@ class IngestionContext(BaseModel):
     embedder: EmbeddingModel
     faiss_manager: "FaissManager"
     index: faiss.Index | None = None
-    metadata: list[MetadataDict] = Field(default_factory=list)
+    metadata: list[MetadataDict] = Field(default_factory=lambda: cast(list[MetadataDict], []))
     processed_hashes: set[str] = Field(default_factory=set)
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
@@ -116,8 +170,10 @@ class IngestionContext(BaseModel):
 __all__ = [
     "PDFRect",
     "PDFPixmap",
+    "PILImage",
     "PDFPage",
     "PDFDocument",
+    "OCRProcessorProtocol",
     "EmbeddingModel",
     "ProcessingStats",
     "ProcessingResult",
