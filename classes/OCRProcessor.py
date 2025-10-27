@@ -8,11 +8,17 @@ import logging
 import math
 import os
 import sys
+import warnings
 from io import BytesIO
 from typing import TYPE_CHECKING
 
 import fitz  # PyMuPDF
 import numpy as np
+
+# Suppress misleading PaddlePaddle ccache warning
+# (only relevant when building from source, not using pre-built wheels)
+warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
+
 import paddle
 from PIL import Image
 from paddleocr import PaddleOCR
