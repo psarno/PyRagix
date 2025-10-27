@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 import os
 import traceback
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, TYPE_CHECKING
+from typing import NamedTuple, TypeAlias, TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -29,6 +30,20 @@ if TYPE_CHECKING:
     import faiss
 
 logger = logging.getLogger(__name__)
+
+
+class DirectoryEntry(NamedTuple):
+    """A single directory entry from os.walk()."""
+
+    dirpath: str
+    """Absolute path to the directory."""
+    subdirs: list[str]
+    """Names of subdirectories in this directory."""
+    filenames: list[str]
+    """Names of files in this directory."""
+
+
+WalkIterator: TypeAlias = Iterable[DirectoryEntry]
 
 
 class DocumentExtractor:
@@ -73,6 +88,16 @@ class FileScanner:
         self._chunker = chunker
         self._env = env
         self._faiss_manager = ctx.faiss_manager
+
+    @staticmethod
+    def _normalize_skip_reason(reason: str) -> str:
+        """Collapse specific skip messages into grouped summary categories."""
+        base = reason.split(":", 1)[0].strip().rstrip(".")
+        mapping = {
+            "unsupported file type": "incompatible file type",
+            "file type not in filter": "filtered file type",
+        }
+        return mapping.get(base, base)
 
     def process_file(
         self,
@@ -195,7 +220,7 @@ class FileScanner:
 
     def scan(
         self,
-        root_path: str | Path,
+        root_path: Path,
         index: faiss.Index | None,
         metadata: list[MetadataDict],
         processed: set[str],
@@ -209,9 +234,14 @@ class FileScanner:
         skipped_already_processed = 0
         skipped_problems = 0
         skip_reasons: dict[str, int] = {}
+        effective_extensions = cfg.get_effective_extensions()
 
         if recurse_subdirs:
-            walker: Iterable[tuple[str, list[str], list[str]]] = os.walk(root_path)
+            raw_walker = os.walk(root_path)
+            walker: WalkIterator = (
+                DirectoryEntry(dirpath, subdirs, filenames)
+                for dirpath, subdirs, filenames in raw_walker
+            )
         else:
             try:
                 root_files: list[str] = [
@@ -219,7 +249,7 @@ class FileScanner:
                     for f in os.listdir(root_path)
                     if os.path.isfile(os.path.join(root_path, f))
                 ]
-                walker = [(str(root_path), [], root_files)]
+                walker = [DirectoryEntry(str(root_path), [], root_files)]
             except OSError:
                 print(f"❌ Cannot access directory: {root_path}")
                 return {
@@ -231,21 +261,24 @@ class FileScanner:
                     "skip_reasons": {},
                 }
 
-        for dirpath, _, filenames in walker:
-            for fname in filenames:
-                path = os.path.join(dirpath, fname)
+        for entry in walker:
+            for fname in entry.filenames:
+                path = os.path.join(entry.dirpath, fname)
                 ext = os.path.splitext(fname)[1].lower()
+
+                if ext not in effective_extensions:
+                    continue
 
                 skip, reason = should_skip_file(path, ext, processed, cfg)
                 if skip:
                     if reason == "already processed":
                         skipped_already_processed += 1
-                        if file_count % cfg.top_print_every == 0:
-                            print(f"✓ Already processed: {fname}")
                     else:
                         skipped_problems += 1
-                        print(f"💨 Skipping {fname}: {reason}")
-                        skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+                        normalized_reason = self._normalize_skip_reason(reason)
+                        skip_reasons[normalized_reason] = (
+                            skip_reasons.get(normalized_reason, 0) + 1
+                        )
                     continue
 
                 try:
@@ -291,7 +324,10 @@ class FileScanner:
                         _ = handle.write(traceback.format_exc())
                         _ = handle.write(f"\n{'=' * 60}\n")
 
-                    skip_reasons[error_type] = skip_reasons.get(error_type, 0) + 1
+                    normalized_reason = self._normalize_skip_reason(error_type)
+                    skip_reasons[normalized_reason] = (
+                        skip_reasons.get(normalized_reason, 0) + 1
+                    )
                     self._env.cleanup()
 
         return {
