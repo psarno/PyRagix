@@ -10,6 +10,12 @@
 # ===============================
 
 import traceback
+import warnings
+
+# Suppress misleading PaddlePaddle ccache warning BEFORE any imports
+# (only relevant when building from source, not using pre-built wheels)
+warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
+
 from pathlib import Path
 from typing import TypedDict, Sequence
 from contextlib import asynccontextmanager

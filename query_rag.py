@@ -5,6 +5,12 @@ from __future__ import annotations
 import io
 import sys
 import traceback
+import warnings
+
+# Suppress misleading PaddlePaddle ccache warning BEFORE any imports
+# (only relevant when building from source, not using pre-built wheels)
+warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
+
 from typing import TYPE_CHECKING
 
 from __version__ import __version__
