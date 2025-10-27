@@ -18,6 +18,7 @@ def test_environment_manager_initialize_uses_mocks(
 
     class OCRStub:
         def __init__(self, cfg: Any) -> None:
+            super().__init__()
             ocr_calls.append(cfg)
 
         def extract_from_image(self, path: str) -> str:
@@ -40,6 +41,7 @@ def test_environment_manager_initialize_uses_mocks(
 
     class EmbedderStub:
         def __init__(self, model_name: str, **_: Any) -> None:
+            super().__init__()
             embed_calls.append(model_name)
 
         def encode(
@@ -57,6 +59,7 @@ def test_environment_manager_initialize_uses_mocks(
 
     class FaissStub:
         def __init__(self) -> None:
+            super().__init__()
             faiss_calls["count"] += 1
 
     monkeypatch.setattr("ingestion.environment.OCRProcessor", OCRStub)
