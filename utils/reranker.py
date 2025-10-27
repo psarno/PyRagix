@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Protocol, Any, cast
 import logging
 from operator import attrgetter

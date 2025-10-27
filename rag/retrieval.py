@@ -1,5 +1,7 @@
 """Query pipeline: retrieval, hybrid fusion, reranking, and generation."""
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import TYPE_CHECKING
 
