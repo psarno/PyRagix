@@ -17,9 +17,6 @@ from types_models import MetadataDict
 if TYPE_CHECKING:
     import faiss
 
-# Validate configuration on import so downstream modules can rely on it.
-config.validate_config()
-
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,

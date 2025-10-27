@@ -40,7 +40,7 @@ documents.db
 processed_files.txt
 ingestion.log
 crash_log.txt
-settings.json
+settings.toml
 
 # TypeScript compiled output
 web/script.js

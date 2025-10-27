@@ -1,287 +1,210 @@
 # ======================================
-# Config for ingestion script
+# Config for PyRagix
+# Loads from settings.toml (read-only, TOML format)
 # Default: tuned for 16GB RAM / 6GB VRAM laptop
 # ======================================
 
-import json
+import tomllib
 from pathlib import Path
-from typing import Literal, Any
+from typing import Any, Literal, cast
+
+from pydantic import BaseModel, Field
 
 # Type definitions
 IndexType = Literal["flat", "ivf_flat", "ivf_pq"]
 
-# Default configuration values
-_DEFAULT_CONFIG: dict[str, int | str | bool | float | list[str]] = {
-    # CPU / Threading
-    "TORCH_NUM_THREADS": 6,
-    "OPENBLAS_NUM_THREADS": 6,
-    "MKL_NUM_THREADS": 6,
-    "OMP_NUM_THREADS": 6,
-    "NUMEXPR_MAX_THREADS": 6,
-    # GPU / CUDA
-    "CUDA_VISIBLE_DEVICES": "0",  # single GPU
-    "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:1024,garbage_collection_threshold:0.9",
-    # FAISS GPU environment
-    "FAISS_DISABLE_CPU": "1",  # Force FAISS to prefer GPU
-    "CUDA_LAUNCH_BLOCKING": "0",  # Allow async CUDA operations
-    # Sentence-Transformers
-    "BATCH_SIZE": 16,
-    # FAISS
-    "INDEX_TYPE": "flat",  # "ivf_flat", "ivf_pq", or "flat"
-    "NLIST": 1024,
-    "NPROBE": 16,
-    # FAISS GPU settings (advanced users only - requires conda-forge faiss-gpu)
-    "GPU_ENABLED": False,  # Enable FAISS GPU acceleration (most users should leave False)
-    "GPU_DEVICE": 0,  # GPU device ID
-    "GPU_MEMORY_FRACTION": 0.8,  # Fraction of GPU memory to use
-    # Files to skip during processing (by filename)
-    "SKIP_FILES": [],
-    # PDF Processing settings
-    "BASE_DPI": 150,  # Base DPI for PDF page rendering
-    "BATCH_SIZE_RETRY_DIVISOR": 4,  # Divisor for reducing batch size on memory errors
-    # File paths and logging
-    "INGESTION_LOG_FILE": "ingestion.log",
-    "CRASH_LOG_FILE": "crash_log.txt",
-    # RAG/Query settings
-    "EMBED_MODEL": "all-MiniLM-L6-v2",
-    "OLLAMA_BASE_URL": "http://localhost:11434",
-    "OLLAMA_MODEL": "qwen2.5:7b",
-    "DEFAULT_TOP_K": 3,
-    "REQUEST_TIMEOUT": 90,
-    "TEMPERATURE": 0.1,
-    "TOP_P": 0.9,
-    "MAX_TOKENS": 500,
-    # Phase 1: Query Expansion (v2)
-    "ENABLE_QUERY_EXPANSION": False,  # Multi-query expansion for improved recall
-    "QUERY_EXPANSION_COUNT": 3,  # Number of query variants to generate
-    # Phase 1: Reranking (v2)
-    "ENABLE_RERANKING": False,  # Cross-encoder reranking for precision
-    "RERANKER_MODEL": "cross-encoder/ms-marco-MiniLM-L-6-v2",  # Cross-encoder model
-    "RERANK_TOP_K": 20,  # Retrieve this many before reranking
-    # Phase 2: Hybrid Search (v2)
-    "ENABLE_HYBRID_SEARCH": False,  # Hybrid FAISS + BM25 keyword search
-    "HYBRID_ALPHA": 0.7,  # Weight for FAISS (0.7 = 70% semantic + 30% keyword)
-    "BM25_INDEX_PATH": "bm25_index.pkl",  # BM25 index file path
-    # Phase 3: Semantic Chunking (v2)
-    "ENABLE_SEMANTIC_CHUNKING": False,  # Sentence-boundary-aware chunking
-    "SEMANTIC_CHUNK_MAX_SIZE": 1600,  # Max characters per chunk (same as current default)
-    "SEMANTIC_CHUNK_OVERLAP": 200,  # Character overlap between chunks
-}
 
-# Settings file path
-SETTINGS_FILE = "settings.json"
+class PyRagixConfig(BaseModel):
+    """PyRagix configuration schema with validation.
 
-
-def _load_settings() -> dict[str, Any]:
-    """Load settings from JSON file, creating it with defaults if it doesn't exist.
-
-    Returns:
-        dict[str, Any]: Configuration settings
+    Loaded from settings.toml. Pydantic handles type coercion and validation.
     """
+    # CPU / Threading
+    TORCH_NUM_THREADS: int = 6
+    OPENBLAS_NUM_THREADS: int = 6
+    MKL_NUM_THREADS: int = 6
+    OMP_NUM_THREADS: int = 6
+    NUMEXPR_MAX_THREADS: int = 6
+
+    # GPU / CUDA
+    CUDA_VISIBLE_DEVICES: str = "0"
+    PYTORCH_CUDA_ALLOC_CONF: str = "max_split_size_mb:1024,garbage_collection_threshold:0.9"
+    FAISS_DISABLE_CPU: str = "1"
+    CUDA_LAUNCH_BLOCKING: str = "0"
+
+    # FAISS GPU settings (advanced users only)
+    GPU_ENABLED: bool = False
+    GPU_DEVICE: int = 0
+    GPU_MEMORY_FRACTION: float = Field(default=0.8, ge=0.0, le=1.0)
+
+    # Embeddings
+    BATCH_SIZE: int = Field(default=16, gt=0)
+    EMBED_MODEL: str = "all-MiniLM-L6-v2"
+
+    # FAISS
+    INDEX_TYPE: IndexType = "flat"
+    NLIST: int = Field(default=1024, gt=0)
+    NPROBE: int = Field(default=16, gt=0)
+
+    # PDF Processing
+    BASE_DPI: int = Field(default=150, gt=0)
+    BATCH_SIZE_RETRY_DIVISOR: int = Field(default=4, gt=0)
+    SKIP_FILES: list[str] = Field(default_factory=list)
+
+    # File paths and logging
+    INGESTION_LOG_FILE: str = "ingestion.log"
+    CRASH_LOG_FILE: str = "crash_log.txt"
+
+    # Ollama / LLM
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "qwen2.5:7b"
+    REQUEST_TIMEOUT: int = Field(default=180, gt=0)
+    TEMPERATURE: float = Field(default=0.1, ge=0.0, le=2.0)
+    TOP_P: float = Field(default=0.9, ge=0.0, le=1.0)
+    MAX_TOKENS: int = Field(default=500, gt=0)
+
+    # Retrieval
+    DEFAULT_TOP_K: int = Field(default=7, gt=0)
+
+    # Phase 1: Query Expansion
+    ENABLE_QUERY_EXPANSION: bool = True
+    QUERY_EXPANSION_COUNT: int = Field(default=3, gt=0)
+
+    # Phase 1: Reranking
+    ENABLE_RERANKING: bool = True
+    RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    RERANK_TOP_K: int = Field(default=20, gt=0)
+
+    # Phase 2: Hybrid Search
+    ENABLE_HYBRID_SEARCH: bool = True
+    HYBRID_ALPHA: float = Field(default=0.7, ge=0.0, le=1.0)
+    BM25_INDEX_PATH: str = "bm25_index.pkl"
+
+    # Phase 3: Semantic Chunking
+    ENABLE_SEMANTIC_CHUNKING: bool = True
+    SEMANTIC_CHUNK_MAX_SIZE: int = Field(default=1600, ge=100)
+    SEMANTIC_CHUNK_OVERLAP: int = Field(default=200, ge=0)
+
+
+
+# Settings file paths
+SETTINGS_FILE = "settings.toml"
+SETTINGS_EXAMPLE_FILE = "settings.example.toml"
+
+
+def _create_settings_from_example() -> None:
+    """Create settings.toml from settings.example.toml on first run.
+
+    This copies the example file to the actual settings file so users get
+    all the documented defaults and comments without checking it into git.
+    """
+    example_path = Path(SETTINGS_EXAMPLE_FILE)
     settings_path = Path(SETTINGS_FILE)
 
-    if settings_path.exists():
-        try:
-            with open(settings_path, "r", encoding="utf-8") as f:
-                user_settings = json.load(f)
+    if not example_path.exists():
+        print(f"Warning: {SETTINGS_EXAMPLE_FILE} not found. Cannot create {SETTINGS_FILE}.")
+        print("Please ensure settings.example.toml exists in the project directory.")
+        return
 
-            # Convert SKIP_FILES list to set if present
-            if "SKIP_FILES" in user_settings:
-                user_settings["SKIP_FILES"] = set(user_settings["SKIP_FILES"])
-
-            # Merge defaults with user settings (user settings take precedence)
-            merged_settings = _DEFAULT_CONFIG.copy()
-            merged_settings.update(user_settings)
-            return merged_settings
-
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"Warning: Could not load {SETTINGS_FILE}: {e}")
-            print("Using default settings. Please check your settings file.")
-            # Return defaults but don't overwrite the existing file
-            return _DEFAULT_CONFIG.copy()
-    else:
-        # File doesn't exist - create it with defaults
-        _create_default_settings()
-        return _DEFAULT_CONFIG.copy()
-
-
-def _create_default_settings() -> None:
-    """Create settings.json file with default values."""
     try:
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(_DEFAULT_CONFIG, f, indent=4)
-        print(f"Created {SETTINGS_FILE} with default settings.")
-        print("You can edit this file to customize your configuration.")
+        # Copy example file to actual settings file
+        with open(example_path, "rb") as src:
+            content = src.read()
+        with open(settings_path, "wb") as dst:
+            _ = dst.write(content)
+        print(f"Created {SETTINGS_FILE} from {SETTINGS_EXAMPLE_FILE}")
     except OSError as e:
         print(f"Warning: Could not create {SETTINGS_FILE}: {e}")
 
 
+def _load_settings() -> PyRagixConfig:
+    """Load settings from TOML file, auto-creating from example on first run.
+
+    Uses Pydantic for validation and type coercion. Fails fast on bad data.
+
+    Returns:
+        PyRagixConfig: Validated configuration object
+    """
+    settings_path = Path(SETTINGS_FILE)
+
+    # Create from example if doesn't exist
+    if not settings_path.exists():
+        _create_settings_from_example()
+
+    # Load and parse TOML (fail fast on errors)
+    with open(settings_path, "rb") as f:
+        toml_data = tomllib.load(f)
+
+    # Flatten TOML sections into flat dict (settings.toml has [section] structure)
+    # Pydantic will handle all type validation and coercion
+    flat_settings: dict[str, Any] = {}
+    for section_data in toml_data.values():
+        # TOML sections are always dicts - cast from tomllib's Any type
+        section_dict = cast(dict[str, Any], section_data)
+        flat_settings.update(section_dict)
+
+    # Use Pydantic to validate and coerce types (handles defaults + validation)
+    return PyRagixConfig.model_validate(flat_settings)
+
+
 # Load settings and create module-level variables
-_settings = _load_settings()
+_config = _load_settings()
 
-# Export all configuration variables at module level
-TORCH_NUM_THREADS: int = _settings["TORCH_NUM_THREADS"]
-OPENBLAS_NUM_THREADS: int = _settings["OPENBLAS_NUM_THREADS"]
-MKL_NUM_THREADS: int = _settings["MKL_NUM_THREADS"]
-OMP_NUM_THREADS: int = _settings["OMP_NUM_THREADS"]
-NUMEXPR_MAX_THREADS: int = _settings["NUMEXPR_MAX_THREADS"]
+# Export all configuration variables at module level (with full type inference!)
+TORCH_NUM_THREADS: int = _config.TORCH_NUM_THREADS
+OPENBLAS_NUM_THREADS: int = _config.OPENBLAS_NUM_THREADS
+MKL_NUM_THREADS: int = _config.MKL_NUM_THREADS
+OMP_NUM_THREADS: int = _config.OMP_NUM_THREADS
+NUMEXPR_MAX_THREADS: int = _config.NUMEXPR_MAX_THREADS
 
-CUDA_VISIBLE_DEVICES: str = _settings["CUDA_VISIBLE_DEVICES"]
-PYTORCH_CUDA_ALLOC_CONF: str = _settings["PYTORCH_CUDA_ALLOC_CONF"]
-FAISS_DISABLE_CPU: str = _settings.get("FAISS_DISABLE_CPU", "0")
-CUDA_LAUNCH_BLOCKING: str = _settings.get("CUDA_LAUNCH_BLOCKING", "0")
+CUDA_VISIBLE_DEVICES: str = _config.CUDA_VISIBLE_DEVICES
+PYTORCH_CUDA_ALLOC_CONF: str = _config.PYTORCH_CUDA_ALLOC_CONF
+FAISS_DISABLE_CPU: str = _config.FAISS_DISABLE_CPU
+CUDA_LAUNCH_BLOCKING: str = _config.CUDA_LAUNCH_BLOCKING
 
-BATCH_SIZE: int = _settings["BATCH_SIZE"]
+BATCH_SIZE: int = _config.BATCH_SIZE
+EMBED_MODEL: str = _config.EMBED_MODEL
 
-INDEX_TYPE: IndexType = _settings["INDEX_TYPE"]
-NLIST: int = _settings["NLIST"]
-NPROBE: int = _settings["NPROBE"]
+INDEX_TYPE: IndexType = _config.INDEX_TYPE
+NLIST: int = _config.NLIST
+NPROBE: int = _config.NPROBE
 
 # FAISS GPU Settings (advanced users only)
-GPU_ENABLED: bool = _settings.get("GPU_ENABLED", False)
-GPU_DEVICE: int = _settings.get("GPU_DEVICE", 0)
-GPU_MEMORY_FRACTION: float = _settings.get("GPU_MEMORY_FRACTION", 0.8)
+GPU_ENABLED: bool = _config.GPU_ENABLED
+GPU_DEVICE: int = _config.GPU_DEVICE
+GPU_MEMORY_FRACTION: float = _config.GPU_MEMORY_FRACTION
 
+SKIP_FILES: set[str] = set(_config.SKIP_FILES)
 
-SKIP_FILES: set[str] = set(_settings.get("SKIP_FILES", []))
+BASE_DPI: int = _config.BASE_DPI
+BATCH_SIZE_RETRY_DIVISOR: int = _config.BATCH_SIZE_RETRY_DIVISOR
 
-BASE_DPI: int = _settings["BASE_DPI"]
-BATCH_SIZE_RETRY_DIVISOR: int = _settings["BATCH_SIZE_RETRY_DIVISOR"]
+INGESTION_LOG_FILE: str = _config.INGESTION_LOG_FILE
+CRASH_LOG_FILE: str = _config.CRASH_LOG_FILE
 
-INGESTION_LOG_FILE: str = _settings["INGESTION_LOG_FILE"]
-CRASH_LOG_FILE: str = _settings["CRASH_LOG_FILE"]
-
-EMBED_MODEL: str = _settings["EMBED_MODEL"]
-OLLAMA_BASE_URL: str = _settings["OLLAMA_BASE_URL"]
-OLLAMA_MODEL: str = _settings["OLLAMA_MODEL"]
-DEFAULT_TOP_K: int = _settings["DEFAULT_TOP_K"]
-REQUEST_TIMEOUT: int = _settings["REQUEST_TIMEOUT"]
-TEMPERATURE: float = _settings["TEMPERATURE"]
-TOP_P: float = _settings["TOP_P"]
-MAX_TOKENS: int = _settings["MAX_TOKENS"]
+OLLAMA_BASE_URL: str = _config.OLLAMA_BASE_URL
+OLLAMA_MODEL: str = _config.OLLAMA_MODEL
+DEFAULT_TOP_K: int = _config.DEFAULT_TOP_K
+REQUEST_TIMEOUT: int = _config.REQUEST_TIMEOUT
+TEMPERATURE: float = _config.TEMPERATURE
+TOP_P: float = _config.TOP_P
+MAX_TOKENS: int = _config.MAX_TOKENS
 
 # Phase 1: Query Expansion (v2)
-ENABLE_QUERY_EXPANSION: bool = _settings.get("ENABLE_QUERY_EXPANSION", False)
-QUERY_EXPANSION_COUNT: int = _settings.get("QUERY_EXPANSION_COUNT", 3)
+ENABLE_QUERY_EXPANSION: bool = _config.ENABLE_QUERY_EXPANSION
+QUERY_EXPANSION_COUNT: int = _config.QUERY_EXPANSION_COUNT
 
 # Phase 1: Reranking (v2)
-ENABLE_RERANKING: bool = _settings.get("ENABLE_RERANKING", False)
-RERANKER_MODEL: str = _settings.get(
-    "RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
-)
-RERANK_TOP_K: int = _settings.get("RERANK_TOP_K", 20)
+ENABLE_RERANKING: bool = _config.ENABLE_RERANKING
+RERANKER_MODEL: str = _config.RERANKER_MODEL
+RERANK_TOP_K: int = _config.RERANK_TOP_K
 
 # Phase 2: Hybrid Search (v2)
-ENABLE_HYBRID_SEARCH: bool = _settings.get("ENABLE_HYBRID_SEARCH", False)
-HYBRID_ALPHA: float = _settings.get("HYBRID_ALPHA", 0.7)
-BM25_INDEX_PATH: str = _settings.get("BM25_INDEX_PATH", "bm25_index.pkl")
+ENABLE_HYBRID_SEARCH: bool = _config.ENABLE_HYBRID_SEARCH
+HYBRID_ALPHA: float = _config.HYBRID_ALPHA
+BM25_INDEX_PATH: str = _config.BM25_INDEX_PATH
 
 # Phase 3: Semantic Chunking (v2)
-ENABLE_SEMANTIC_CHUNKING: bool = _settings.get("ENABLE_SEMANTIC_CHUNKING", False)
-SEMANTIC_CHUNK_MAX_SIZE: int = _settings.get("SEMANTIC_CHUNK_MAX_SIZE", 1600)
-SEMANTIC_CHUNK_OVERLAP: int = _settings.get("SEMANTIC_CHUNK_OVERLAP", 200)
-
-
-def validate_config() -> None:
-    """Validate configuration values at startup."""
-    # Integer configs that should be positive
-    positive_int_configs = [
-        ("TORCH_NUM_THREADS", TORCH_NUM_THREADS),
-        ("OPENBLAS_NUM_THREADS", OPENBLAS_NUM_THREADS),
-        ("MKL_NUM_THREADS", MKL_NUM_THREADS),
-        ("OMP_NUM_THREADS", OMP_NUM_THREADS),
-        ("NUMEXPR_MAX_THREADS", NUMEXPR_MAX_THREADS),
-        ("BATCH_SIZE", BATCH_SIZE),
-        ("NLIST", NLIST),
-        ("NPROBE", NPROBE),
-        ("BASE_DPI", BASE_DPI),
-        ("BATCH_SIZE_RETRY_DIVISOR", BATCH_SIZE_RETRY_DIVISOR),
-        ("DEFAULT_TOP_K", DEFAULT_TOP_K),
-        ("REQUEST_TIMEOUT", REQUEST_TIMEOUT),
-        ("MAX_TOKENS", MAX_TOKENS),
-    ]
-
-    for config_name, config_val in positive_int_configs:
-        if config_val <= 0:
-            raise ValueError(
-                f"{config_name} must be a positive integer, got: {config_val}"
-            )
-
-    # Float configs with valid ranges
-    if not (0.0 <= TEMPERATURE <= 2.0):
-        raise ValueError(
-            f"TEMPERATURE must be a float between 0.0 and 2.0, got: {TEMPERATURE}"
-        )
-
-    if not (0.0 <= TOP_P <= 1.0):
-        raise ValueError(f"TOP_P must be a float between 0.0 and 1.0, got: {TOP_P}")
-
-    # String configs
-    string_configs = [
-        ("CUDA_VISIBLE_DEVICES", CUDA_VISIBLE_DEVICES),
-        ("INGESTION_LOG_FILE", INGESTION_LOG_FILE),
-        ("CRASH_LOG_FILE", CRASH_LOG_FILE),
-        ("OLLAMA_BASE_URL", OLLAMA_BASE_URL),
-        ("OLLAMA_MODEL", OLLAMA_MODEL),
-    ]
-
-    for config_name, config_val in string_configs:
-        if not config_val.strip():
-            raise ValueError(
-                f"{config_name} must be a non-empty string, got: {config_val}"
-            )
-
-    # Index type validation
-    valid_index_types = {"flat", "ivf", "ivf_flat", "ivf_pq"}
-    if INDEX_TYPE not in valid_index_types:
-        raise ValueError(
-            f"INDEX_TYPE must be one of {valid_index_types}, got: {INDEX_TYPE}"
-        )
-
-    # Phase 1: Query Expansion validation
-    if QUERY_EXPANSION_COUNT < 1:
-        raise ValueError(
-            f"QUERY_EXPANSION_COUNT must be a positive integer, got: {QUERY_EXPANSION_COUNT}"
-        )
-
-    # Phase 1: Reranking validation
-    if not RERANKER_MODEL.strip():
-        raise ValueError(
-            f"RERANKER_MODEL must be a non-empty string, got: {RERANKER_MODEL}"
-        )
-
-    if RERANK_TOP_K < 1:
-        raise ValueError(
-            f"RERANK_TOP_K must be a positive integer, got: {RERANK_TOP_K}"
-        )
-
-    # Phase 2: Hybrid Search validation
-    if not (0.0 <= HYBRID_ALPHA <= 1.0):
-        raise ValueError(
-            f"HYBRID_ALPHA must be a float in [0.0, 1.0], got: {HYBRID_ALPHA}"
-        )
-
-    if not BM25_INDEX_PATH.strip():
-        raise ValueError(
-            f"BM25_INDEX_PATH must be a non-empty string, got: {BM25_INDEX_PATH}"
-        )
-
-    # Phase 3: Semantic Chunking validation
-    if SEMANTIC_CHUNK_MAX_SIZE < 100:
-        raise ValueError(
-            f"SEMANTIC_CHUNK_MAX_SIZE must be an integer >= 100, got: {SEMANTIC_CHUNK_MAX_SIZE}"
-        )
-
-    if SEMANTIC_CHUNK_OVERLAP < 0:
-        raise ValueError(
-            f"SEMANTIC_CHUNK_OVERLAP must be a non-negative integer, got: {SEMANTIC_CHUNK_OVERLAP}"
-        )
-
-    if SEMANTIC_CHUNK_OVERLAP >= SEMANTIC_CHUNK_MAX_SIZE:
-        raise ValueError(
-            f"SEMANTIC_CHUNK_OVERLAP ({SEMANTIC_CHUNK_OVERLAP}) must be less than SEMANTIC_CHUNK_MAX_SIZE ({SEMANTIC_CHUNK_MAX_SIZE})"
-        )
-
-
-# Validate on import
-validate_config()
+ENABLE_SEMANTIC_CHUNKING: bool = _config.ENABLE_SEMANTIC_CHUNKING
+SEMANTIC_CHUNK_MAX_SIZE: int = _config.SEMANTIC_CHUNK_MAX_SIZE
+SEMANTIC_CHUNK_OVERLAP: int = _config.SEMANTIC_CHUNK_OVERLAP
