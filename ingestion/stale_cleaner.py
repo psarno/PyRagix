@@ -15,6 +15,7 @@ class StaleDocumentCleaner:
     """Manages detection and cleanup of stale document references."""
 
     def __init__(self, config: ProcessingConfig) -> None:
+        super().__init__()
         self.config = config
 
     def check_and_handle_stale_documents(

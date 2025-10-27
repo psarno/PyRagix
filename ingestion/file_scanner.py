@@ -33,6 +33,7 @@ class DocumentExtractor:
     """High-level text extraction facade."""
 
     def __init__(self, cfg: ProcessingConfig, ocr: OCRProcessorProtocol) -> None:
+        super().__init__()
         self._cfg = cfg
         self._ocr = ocr
 
@@ -45,6 +46,7 @@ class Chunker:
     """Chunk text according to the configured strategy."""
 
     def __init__(self, cfg: ProcessingConfig, embedder: EmbeddingModel) -> None:
+        super().__init__()
         self._cfg = cfg
         self._embedder = embedder
 
@@ -63,6 +65,7 @@ class FileScanner:
         chunker: Chunker,
         env: EnvironmentManager,
     ) -> None:
+        super().__init__()
         self._ctx = ctx
         self._extractor = extractor
         self._chunker = chunker

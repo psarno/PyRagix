@@ -20,6 +20,7 @@ class EnvironmentManager:
     """Owns environment/application state setup for ingestion."""
 
     def __init__(self) -> None:
+        super().__init__()
         self._context: IngestionContext | None = None
 
     def apply(self) -> None:
