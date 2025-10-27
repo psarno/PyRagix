@@ -64,7 +64,7 @@ def generate_answer_with_ollama(
         return f"WARNING: Request error: {exc}"
     except (KeyError, ValueError) as exc:
         return f"WARNING: Configuration or response parsing error: {exc}"
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:
         return f"WARNING: Unexpected error generating answer: {exc}"
 
 

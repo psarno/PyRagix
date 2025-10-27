@@ -80,7 +80,7 @@ def load_rag_system(
 
         return index, metadata, embedder
 
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:
         raise Exception(f"Failed to load RAG system: {exc}") from exc
 
 
