@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Sequence, TypedDict, cast
 
@@ -33,8 +34,10 @@ def load_metadata(db_path: Path) -> list[MetadataDict]:
         return []
 
     chunks_table = db["chunks"]
+    rows_iter = cast(Iterable[Mapping[str, Any]], chunks_table.rows)
     records: list[MetadataDict] = []
-    for row in chunks_table.rows():
+    # sqlite-utils exposes rows as an iterable property, not a callable
+    for row in rows_iter:
         try:
             records.append(
                 MetadataDict(
