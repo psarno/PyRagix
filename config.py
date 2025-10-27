@@ -8,10 +8,10 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Type definitions
-IndexType = Literal["flat", "ivf_flat", "ivf_pq"]
+IndexType = Literal["flat", "ivf", "ivf_pq"]
 
 
 class PyRagixConfig(BaseModel):
@@ -84,6 +84,17 @@ class PyRagixConfig(BaseModel):
     ENABLE_SEMANTIC_CHUNKING: bool = True
     SEMANTIC_CHUNK_MAX_SIZE: int = Field(default=1600, ge=100)
     SEMANTIC_CHUNK_OVERLAP: int = Field(default=200, ge=0)
+
+    @field_validator("INDEX_TYPE", mode="before")
+    @classmethod
+    def _normalize_index_type(cls, value: Any) -> str:
+        if isinstance(value, str):
+            normalized = value.lower()
+            if normalized == "ivf_flat":
+                normalized = "ivf"
+            if normalized in {"flat", "ivf", "ivf_pq"}:
+                return normalized
+        raise ValueError("INDEX_TYPE must be one of: flat, ivf, ivf_pq")
 
 
 
