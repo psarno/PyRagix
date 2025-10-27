@@ -102,7 +102,7 @@ class FileScanner:
                     convert_to_numpy=True,
                     normalize_embeddings=True,
                 )
-                embs = np.asarray(embs_raw, dtype=np.float32).astype(np.float32)
+                embs = np.asarray(embs_raw, dtype=np.float32)
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
         except torch.OutOfMemoryError as exc:
@@ -128,7 +128,7 @@ class FileScanner:
                         convert_to_numpy=True,
                         normalize_embeddings=True,
                     )
-                    embs = np.asarray(embs_raw, dtype=np.float32).astype(np.float32)
+                    embs = np.asarray(embs_raw, dtype=np.float32)
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
             except Exception as retry_exc:
