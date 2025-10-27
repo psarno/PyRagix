@@ -234,7 +234,7 @@ class IngestionContext(BaseModel):
     """Validated container for shared ingestion state."""
 
     config: ProcessingConfig
-    ocr: OCRProcessor
+    ocr: OCRProcessorProtocol
     embedder: EmbeddingModel
     faiss_manager: "FaissManager"
     index: faiss.Index | None = None
