@@ -7,7 +7,6 @@ from types_models import MetadataDict
 
 if TYPE_CHECKING:
     import faiss
-    from classes.OCRProcessor import OCRProcessor
     from ingestion.faiss_manager import FaissManager
 else:
     OCRProcessor = Any
