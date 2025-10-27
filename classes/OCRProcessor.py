@@ -15,13 +15,29 @@ from typing import TYPE_CHECKING
 import fitz  # PyMuPDF
 import numpy as np
 
+import paddle
+from PIL import Image
+from paddleocr import PaddleOCR
+
+# Suppress C++ library logging (glog) before importing paddle
+# These must be set before paddle's C++ libs initialize
+_ = os.environ.setdefault("GLOG_minloglevel", "2")
+_ = os.environ.setdefault("GLOG_v", "0")
+_ = os.environ.setdefault("FLAGS_v", "0")
+
 # Suppress misleading PaddlePaddle ccache warning
 # (only relevant when building from source, not using pre-built wheels)
 warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
 
-import paddle
-from PIL import Image
-from paddleocr import PaddleOCR
+# Check if PPOCR_HOME is set - if not, warn user about the default location
+if "PPOCR_HOME" not in os.environ:
+    default_cache = os.path.normpath(os.path.expanduser("~/.paddlex"))
+    _ =sys.stderr.write(
+        (f"WARNING: PPOCR_HOME not set. PaddleOCR will download ~500MB-1GB of models to:\n"
+        f"         {default_cache}\n"
+        "         To change this location, set the PPOCR_HOME environment variable.\n"
+        "         Example: export PPOCR_HOME=/your/custom/path/.paddlex\n\n")
+    )
 
 if TYPE_CHECKING:
     from classes.ProcessingConfig import ProcessingConfig
