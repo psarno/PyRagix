@@ -1,21 +1,30 @@
 """LLM interaction helpers."""
 
+from pathlib import Path
 from textwrap import dedent
 
 import requests
 
-from types_models import RAGConfig
+from types_models import RAGConfig, SearchResult
 
 
 def generate_answer_with_ollama(
     query: str,
-    context_chunks: list[str],
+    search_results: list[SearchResult],
     config: RAGConfig,
 ) -> str:
-    """Call the Ollama HTTP API with contextualized prompt."""
-    context = "\n\n".join(
-        [f"Document {i + 1}: {chunk}" for i, chunk in enumerate(context_chunks)]
-    )
+    """Call the Ollama HTTP API with contextualized prompt including metadata."""
+    formatted_chunks: list[str] = []
+    for i, result in enumerate(search_results, start=1):
+        source_name = Path(result.source).name
+        metadata_header = (
+            f"[Source: {source_name}, "
+            f"Chunk {result.chunk_idx + 1}/{result.total_chunks}, "
+            f"Type: {result.file_type.upper()}]"
+        )
+        formatted_chunks.append(f"Document {i}:\n{metadata_header}\n{result.text}")
+
+    context = "\n\n".join(formatted_chunks)
 
     prompt = dedent(f"""Analyze these documents to answer the question comprehensively. Use ONLY what is written in the documents.
 

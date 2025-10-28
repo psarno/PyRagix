@@ -193,6 +193,8 @@ class FileScanner:
 
         file_hash = calculate_file_hash(path)
         created_at = datetime.now().isoformat()
+        file_type = Path(path).suffix.lstrip(".").lower() or "unknown"
+        total_chunks = len(chunks)
 
         chunk_records: list[ChunkRecord] = []
         metadata_entries: list[MetadataDict] = []
@@ -204,10 +206,18 @@ class FileScanner:
                     "text": chunk,
                     "file_hash": file_hash,
                     "created_at": created_at,
+                    "file_type": file_type,
+                    "total_chunks": total_chunks,
                 }
             )
             metadata_entries.append(
-                MetadataDict(source=path, chunk_index=i, text=chunk)
+                MetadataDict(
+                    source=path,
+                    chunk_index=i,
+                    text=chunk,
+                    file_type=file_type,
+                    total_chunks=total_chunks,
+                )
             )
 
         metadata.extend(metadata_entries)

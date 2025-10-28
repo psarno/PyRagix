@@ -17,6 +17,8 @@ def _row_to_metadata(row: Mapping[str, Any]) -> MetadataDict:
         source=str(row["source"]),
         chunk_index=int(row["chunk_index"]),
         text=str(row["text"]),
+        file_type=str(row["file_type"]),
+        total_chunks=int(row["total_chunks"]),
     )
 
 

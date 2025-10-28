@@ -137,7 +137,9 @@ def query_rag(
                         chunk_idx=meta.chunk_index,
                         score=score,
                         text=meta.text,
-                        metadata_idx=idx,  # Capture metadata index
+                        metadata_idx=idx,
+                        file_type=meta.file_type,
+                        total_chunks=meta.total_chunks,
                     )
 
         sources_info: list[SearchResult] = list(all_results.values())
@@ -208,20 +210,18 @@ def query_rag(
             if debug:
                 print(f"   After reranking, using top {len(sources_info)} results")
 
-        context_chunks = [result.text for result in sources_info]
-
-        if not context_chunks:
+        if not sources_info:
             print("\nNo relevant documents found.")
             return None
 
         if debug:
-            print(f"\nSending {len(context_chunks)} chunks to LLM:")
-            for i, chunk in enumerate(context_chunks[:2], start=1):
-                print(f"  Chunk {i} (len={len(chunk)}): {repr(chunk[:100])}...")
+            print(f"\nSending {len(sources_info)} chunks to LLM:")
+            for i, result in enumerate(sources_info[:2], start=1):
+                print(f"  Chunk {i} (len={len(result.text)}): {repr(result.text[:100])}...")
             print()
 
         print("🤖 Generating answer...")
-        answer = generate_answer_with_ollama(query, context_chunks, config_obj)
+        answer = generate_answer_with_ollama(query, sources_info, config_obj)
 
         print("\nAnswer:")
         print("=" * 60)

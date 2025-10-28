@@ -17,6 +17,8 @@ class ChunkRecord(TypedDict):
     text: str
     file_hash: str
     created_at: str
+    file_type: str
+    total_chunks: int
 
 
 def load_metadata(db_path: Path) -> list[MetadataDict]:
@@ -44,10 +46,17 @@ def load_metadata(db_path: Path) -> list[MetadataDict]:
                     source=str(row["source"]),
                     chunk_index=int(row["chunk_index"]),
                     text=str(row["text"]),
+                    file_type=str(row["file_type"]),
+                    total_chunks=int(row["total_chunks"]),
                 )
             )
-        except KeyError:
-            continue
+        except KeyError as exc:
+            # Fail fast: new schema required
+            error_msg = (
+                f"Database schema is outdated. Missing required field: {exc}. "
+                + "Please re-ingest your documents with: uv run python ingest_folder.py --fresh ./docs"
+            )
+            raise RuntimeError(error_msg) from exc
     return records
 
 
@@ -68,6 +77,8 @@ def insert_chunk_records(db_path: Path, chunk_records: Sequence[ChunkRecord]) ->
                 "text": str,
                 "file_hash": str,
                 "created_at": str,
+                "file_type": str,
+                "total_chunks": int,
             },
             pk="id",
         )

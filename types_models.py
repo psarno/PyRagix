@@ -16,6 +16,8 @@ class MetadataDict(BaseModel):
     source: str = Field(description="Source file path")
     chunk_index: int = Field(ge=0, description="Chunk index within document")
     text: str = Field(description="Text content of the chunk")
+    file_type: str = Field(description="File type/extension (pdf, html, jpg, etc.)")
+    total_chunks: int = Field(ge=1, description="Total chunks in the source document")
 
     model_config = ConfigDict(frozen=True, validate_assignment=True)
 
@@ -97,6 +99,8 @@ class SearchResult(BaseModel):
     metadata_idx: int = Field(
         ge=0, description="Index in metadata list (for BM25 matching)"
     )
+    file_type: str = Field(description="File type/extension (pdf, html, jpg, etc.)")
+    total_chunks: int = Field(ge=1, description="Total chunks in the source document")
 
     # Optional fields for hybrid search
     faiss_score: float | None = Field(

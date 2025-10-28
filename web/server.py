@@ -345,8 +345,7 @@ def _query_rag_with_sources(
             scores = distances
             indices = labels
 
-        # Collect relevant chunks and sources
-        context_chunks: list[str] = []
+        # Collect relevant sources
         sources_info: list[SearchResult] = []
 
         for score_raw, idx_raw in zip(scores[0], indices[0]):
@@ -358,8 +357,9 @@ def _query_rag_with_sources(
             source = str(meta.source)
             chunk_idx = int(meta.chunk_index)
             text = str(meta.text)
+            file_type = str(meta.file_type)
+            total_chunks = int(meta.total_chunks)
 
-            context_chunks.append(text)
             sources_info.append(
                 SearchResult(
                     source=source,
@@ -367,14 +367,16 @@ def _query_rag_with_sources(
                     score=float(score_raw),
                     text=text,
                     metadata_idx=idx_int,
+                    file_type=file_type,
+                    total_chunks=total_chunks,
                 )
             )
 
-        if not context_chunks:
+        if not sources_info:
             return None, []
 
         # Generate answer using Ollama
-        answer = generate_answer_with_ollama(query, context_chunks, config)
+        answer = generate_answer_with_ollama(query, sources_info, config)
 
         # Return sources only if requested
         returned_sources = sources_info if show_sources else []
