@@ -5,6 +5,7 @@
 # - CORS enabled for local development
 # ======================================
 
+import traceback
 from pathlib import Path
 from typing import TypedDict, Sequence, Literal
 from contextlib import asynccontextmanager
@@ -32,17 +33,6 @@ from rag.llm import generate_answer_with_ollama
 from types_models import MetadataDict, RAGConfig, SearchResult
 from web.models import DimensionalityMethod
 from web.visualization_utils import create_embedding_visualization
-
-# ===============================
-# Standard Library
-# ===============================
-
-import traceback
-import warnings
-
-# Suppress misleading PaddlePaddle ccache warning BEFORE any imports
-# (only relevant when building from source, not using pre-built wheels)
-warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
 
 # ===============================
 # Type Definitions
@@ -529,8 +519,37 @@ if web_dir.exists():
 # ===============================
 # Server Entry Point
 # ===============================
+def _ensure_utf8_stdio() -> None:
+    """Force UTF-8 encoding for Windows Git Bash consoles."""
+    import sys
+    import io
+
+    if sys.platform != "win32" or "pytest" in sys.modules:
+        return
+
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None:
+            continue
+        buffer = getattr(stream, "buffer", None)
+        if buffer is None:
+            continue
+        try:
+            wrapper = io.TextIOWrapper(
+                buffer,
+                encoding="utf-8",
+                errors="replace",
+                line_buffering=True,
+            )
+        except (LookupError, OSError, ValueError):
+            continue
+        setattr(sys, stream_name, wrapper)
+
+
 def main() -> None:
     """Run the FastAPI server."""
+    _ensure_utf8_stdio()
+
     print("🌐 Starting RAG Web Server...")
     print("📖 Web interface will be available at: http://localhost:8000/web/")
     print("🔍 API docs available at: http://localhost:8000/docs")
