@@ -4,7 +4,7 @@ A production-ready, local-first Retrieval-Augmented Generation (RAG) system buil
 
 Built for developers and organizations that require both performance and privacy, PyRagix runs entirely on your infrastructure with zero external API dependencies for document processing and search. All AI operations leverage local models via Ollama, ensuring your documents never leave your control.
 
-![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
+![Python](https://img.shields.io/badge/python-3.13+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Status](https://img.shields.io/badge/status-Production%20Ready-brightgreen.svg)
 
