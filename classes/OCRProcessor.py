@@ -45,19 +45,20 @@ if TYPE_CHECKING:
     from classes.ProcessingConfig import ProcessingConfig
     from ingestion.models import PDFDocument, PDFPage, PILImage
 
-base = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
-for sub in [
-    "cudnn",
-    "cublas",
-    "cufft",
-    "curand",
-    "cusolver",
-    "cusparse",
-    "cuda_runtime",
-]:
-    bin_path = os.path.join(base, sub, "bin")
-    if os.path.isdir(bin_path):
-        _ = os.add_dll_directory(bin_path)
+if sys.platform == "win32":
+    base = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
+    for sub in [
+        "cudnn",
+        "cublas",
+        "cufft",
+        "curand",
+        "cusolver",
+        "cusparse",
+        "cuda_runtime",
+    ]:
+        bin_path = os.path.join(base, sub, "bin")
+        if os.path.isdir(bin_path):
+            _ = os.add_dll_directory(bin_path)
 
 # Set up logger
 logger = logging.getLogger(__name__)
