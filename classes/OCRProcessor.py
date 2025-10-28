@@ -14,10 +14,11 @@ from typing import TYPE_CHECKING
 
 import fitz  # PyMuPDF
 import numpy as np
-
-import paddle
 from PIL import Image
-from paddleocr import PaddleOCR
+
+# Suppress misleading PaddlePaddle ccache warning BEFORE any imports
+# (only relevant when building from source, not using pre-built wheels)
+warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
 
 # Suppress C++ library logging (glog) before importing paddle
 # These must be set before paddle's C++ libs initialize
@@ -25,9 +26,8 @@ _ = os.environ.setdefault("GLOG_minloglevel", "2")
 _ = os.environ.setdefault("GLOG_v", "0")
 _ = os.environ.setdefault("FLAGS_v", "0")
 
-# Suppress misleading PaddlePaddle ccache warning
-# (only relevant when building from source, not using pre-built wheels)
-warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
+import paddle  # noqa: E402
+from paddleocr import PaddleOCR  # noqa: E402
 
 # Check if PPOCR_HOME is set - if not, warn user about the default location
 if "PPOCR_HOME" not in os.environ:
@@ -238,6 +238,14 @@ class OCRProcessor:
         """Extract text from image file using OCR with memory error handling."""
         try:
             with Image.open(path) as im:
+                # Skip tiny images (likely test fixtures, icons, or UI elements)
+                # Minimum 100x100 pixels required for meaningful OCR
+                min_dimension = 100
+                if im.width < min_dimension or im.height < min_dimension:
+                    logger.info(
+                        f"⏭️  Skipping tiny image {path} ({im.width}x{im.height}px) - below {min_dimension}x{min_dimension}px threshold"
+                    )
+                    return ""
                 # Ultra conservative sizing for stability
                 max_pixels = 256 * 256  # 0.065MP max - very small
                 if im.width * im.height > max_pixels:
