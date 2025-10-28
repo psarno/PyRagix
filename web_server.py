@@ -17,7 +17,7 @@ import warnings
 warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
 
 from pathlib import Path
-from typing import TypedDict, Sequence
+from typing import TypedDict, Sequence, Literal
 from contextlib import asynccontextmanager
 
 # ===============================
@@ -94,8 +94,8 @@ class VisualizationRequest(BaseModel):
     """Request model for embedding visualization."""
 
     query: str
-    method: str = "umap"  # "umap" or "tsne"
-    dimensions: int = 2  # 2 or 3
+    method: Literal["umap", "tsne"] = "umap"
+    dimensions: Literal[2, 3] = 2
     max_points: int = 1000
     top_k: int | None = None
 
@@ -119,8 +119,8 @@ class VisualizationResponse(BaseModel):
 
     points: list[EmbeddingPoint]
     query: str
-    method: str
-    dimensions: int
+    method: Literal["umap", "tsne"]
+    dimensions: Literal[2, 3]
     total_points: int
     retrieved_count: int
     success: bool
@@ -474,7 +474,7 @@ async def visualize_embeddings_endpoint(request: VisualizationRequest):
         )
 
         # Check for errors
-        if "error" in viz_data:
+        if viz_data.error:
             return VisualizationResponse(
                 points=[],
                 query=request.query,
@@ -483,19 +483,32 @@ async def visualize_embeddings_endpoint(request: VisualizationRequest):
                 total_points=0,
                 retrieved_count=0,
                 success=False,
-                error=viz_data["error"],
+                error=viz_data.error,
             )
 
-        # Convert to EmbeddingPoint objects for Pydantic validation
-        points = [EmbeddingPoint(**point) for point in viz_data["points"]]
+        # Convert VisualizationPoint to EmbeddingPoint for API response
+        points = [
+            EmbeddingPoint(
+                id=point.id,
+                x=point.x,
+                y=point.y,
+                z=point.z,
+                source=point.source,
+                chunk_idx=point.chunk_idx,
+                score=point.score,
+                text=point.text,
+                is_query=point.is_query,
+            )
+            for point in viz_data.points
+        ]
 
         return VisualizationResponse(
             points=points,
-            query=viz_data["query"],
-            method=viz_data["method"],
-            dimensions=viz_data["dimensions"],
-            total_points=viz_data["total_points"],
-            retrieved_count=viz_data["retrieved_count"],
+            query=viz_data.query,
+            method=viz_data.method,
+            dimensions=viz_data.dimensions,
+            total_points=viz_data.total_points,
+            retrieved_count=viz_data.retrieved_count,
             success=True,
         )
 

@@ -9,7 +9,7 @@
 # Standard Library
 # ===============================
 
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 # ===============================
 # Third-party Libraries
@@ -17,15 +17,45 @@ from typing import Any, Sequence
 import numpy as np
 import numpy.typing as npt
 import faiss
+from pydantic import BaseModel, Field
 from sklearn.manifold import TSNE
 import umap
 
 from rag.embeddings import memory_cleanup
 from types_models import MetadataDict
 
-PointDict = dict[str, Any]
 FloatArray = npt.NDArray[np.float32]
 EmbeddingArray = npt.NDArray[np.floating[Any]]
+DimensionalityMethod = Literal["umap", "tsne"]
+
+
+# ===============================
+# Pydantic Models
+# ===============================
+class VisualizationPoint(BaseModel):
+    """Single point in embedding visualization space."""
+
+    id: int = Field(description="Unique point identifier")
+    x: float = Field(description="X coordinate in reduced space")
+    y: float = Field(description="Y coordinate in reduced space")
+    z: float | None = Field(None, description="Z coordinate (3D only)")
+    source: str = Field(description="Source document path or [QUERY]")
+    chunk_idx: int = Field(description="Chunk index within source")
+    score: float = Field(ge=0.0, le=1.0, description="Similarity score")
+    text: str = Field(description="Preview text (truncated)")
+    is_query: bool = Field(description="Whether this is the query point")
+
+
+class VisualizationData(BaseModel):
+    """Complete visualization dataset for frontend."""
+
+    points: list[VisualizationPoint] = Field(description="All visualization points")
+    query: str = Field(description="Original query text")
+    method: DimensionalityMethod = Field(description="Reduction method used")
+    dimensions: Literal[2, 3] = Field(description="Output dimensionality")
+    total_points: int = Field(ge=0, description="Total points in visualization")
+    retrieved_count: int = Field(ge=0, description="Number of retrieved documents")
+    error: str | None = Field(None, description="Error message if failed")
 
 
 # ===============================
@@ -86,16 +116,14 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> Flo
 # ===============================
 def _apply_dimensionality_reduction(
     embeddings: EmbeddingArray,
-    method: str = "umap",
-    dimensions: int = 2,
-    random_state: int = 42,
+    method: DimensionalityMethod = "umap",
+    dimensions: Literal[2, 3] = 2,
 ) -> EmbeddingArray:
     """Apply UMAP or t-SNE dimensionality reduction."""
 
     if method.lower() == "umap":
         reducer = umap.UMAP(
             n_components=dimensions,
-            random_state=random_state,
             n_neighbors=15,
             min_dist=0.1,
             metric="cosine",
@@ -103,7 +131,6 @@ def _apply_dimensionality_reduction(
     elif method.lower() == "tsne":
         reducer = TSNE(
             n_components=dimensions,
-            random_state=random_state,
             perplexity=min(30, len(embeddings) - 1),
             max_iter=1000,
         )
@@ -128,10 +155,10 @@ def create_embedding_visualization(
     metadata: Sequence[MetadataDict],
     retrieved_indices: Sequence[int],
     scores: Sequence[float],
-    method: str = "umap",
-    dimensions: int = 2,
+    method: DimensionalityMethod = "umap",
+    dimensions: Literal[2, 3] = 2,
     max_points: int = 1000,
-) -> dict[str, Any]:
+) -> VisualizationData:
     """Create visualization data for RAG embeddings."""
     try:
         # Extract document embeddings
@@ -146,22 +173,22 @@ def create_embedding_visualization(
         )
 
         # Prepare points for frontend
-        points: list[PointDict] = []
+        points: list[VisualizationPoint] = []
 
         # Query point (first)
         query_coords = reduced_embeddings[0]
         points.append(
-            {
-                "id": 0,
-                "x": float(query_coords[0]),
-                "y": float(query_coords[1]),
-                "z": float(query_coords[2]) if dimensions == 3 else None,
-                "source": "[QUERY]",
-                "chunk_idx": 0,
-                "score": 1.0,
-                "text": query,
-                "is_query": True,
-            }
+            VisualizationPoint(
+                id=0,
+                x=float(query_coords[0]),
+                y=float(query_coords[1]),
+                z=float(query_coords[2]) if dimensions == 3 else None,
+                source="[QUERY]",
+                chunk_idx=0,
+                score=1.0,
+                text=query,
+                is_query=True,
+            )
         )
 
         # Document points
@@ -178,36 +205,37 @@ def create_embedding_visualization(
                 text = meta.text
 
                 points.append(
-                    {
-                        "id": i,
-                        "x": float(coords[0]),
-                        "y": float(coords[1]),
-                        "z": float(coords[2]) if dimensions == 3 else None,
-                        "source": meta.source,
-                        "chunk_idx": meta.chunk_index,
-                        "score": float(score),
-                        "text": text[:200] + "..." if len(text) > 200 else text,
-                        "is_query": False,
-                    }
+                    VisualizationPoint(
+                        id=i,
+                        x=float(coords[0]),
+                        y=float(coords[1]),
+                        z=float(coords[2]) if dimensions == 3 else None,
+                        source=meta.source,
+                        chunk_idx=meta.chunk_index,
+                        score=float(score),
+                        text=text[:200] + "..." if len(text) > 200 else text,
+                        is_query=False,
+                    )
                 )
 
-        return {
-            "points": points,
-            "query": query,
-            "method": method,
-            "dimensions": dimensions,
-            "total_points": len(points),
-            "retrieved_count": len(retrieved_indices),
-        }
+        return VisualizationData(
+            points=points,
+            query=query,
+            method=method,
+            dimensions=dimensions,
+            total_points=len(points),
+            retrieved_count=len(retrieved_indices),
+            error=None,
+        )
 
     except Exception as e:
         print(f"❌ Error creating visualization: {e}")
-        return {
-            "points": [],
-            "query": query,
-            "method": method,
-            "dimensions": dimensions,
-            "total_points": 0,
-            "retrieved_count": 0,
-            "error": str(e),
-        }
+        return VisualizationData(
+            points=[],
+            query=query,
+            method=method,
+            dimensions=dimensions,
+            total_points=0,
+            retrieved_count=0,
+            error=str(e),
+        )
