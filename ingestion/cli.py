@@ -32,9 +32,10 @@ def validate_input_path(folder_path: str) -> None:
 
     # Warn about root/home directory
     home = Path.home().resolve()
-    root_dirs = [Path("/"), Path("C:\\"), Path("D:\\"), Path("E:\\")]
+    # Check if path is a filesystem root (parent == itself)
+    is_root = path.parent == path
 
-    if path in root_dirs:
+    if is_root:
         print(f"❌ Error: Cannot index filesystem root directory: {path}")
         print("   This would scan your entire system.")
         print("   Please specify a specific folder (e.g., './docs')")
