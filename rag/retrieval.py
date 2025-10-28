@@ -124,6 +124,7 @@ def query_rag(
                         f"FAISS and metadata are out of sync. Rebuild your index."
                     )
                     import logging
+
                     logging.getLogger(__name__).error(error_msg)
                     raise IndexError(error_msg)
 
@@ -168,9 +169,7 @@ def query_rag(
                         # Direct O(1) lookup using captured metadata_idx
                         faiss_score = faiss_result.score
                         faiss_normalized = max(0.0, min(1.0, (faiss_score - 0.5) * 2.0))
-                        bm25_score = bm25_score_map.get(
-                            faiss_result.metadata_idx, 0.0
-                        )
+                        bm25_score = bm25_score_map.get(faiss_result.metadata_idx, 0.0)
                         fused_score = (
                             alpha * faiss_normalized + (1 - alpha) * bm25_score
                         )

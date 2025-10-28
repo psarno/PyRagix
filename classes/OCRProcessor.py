@@ -32,11 +32,13 @@ from paddleocr import PaddleOCR  # noqa: E402
 # Check if PPOCR_HOME is set - if not, warn user about the default location
 if "PPOCR_HOME" not in os.environ:
     default_cache = os.path.normpath(os.path.expanduser("~/.paddlex"))
-    _ =sys.stderr.write(
-        (f"WARNING: PPOCR_HOME not set. PaddleOCR will download ~500MB-1GB of models to:\n"
-        f"         {default_cache}\n"
-        "         To change this location, set the PPOCR_HOME environment variable.\n"
-        "         Example: export PPOCR_HOME=/your/custom/path/.paddlex\n\n")
+    _ = sys.stderr.write(
+        (
+            f"WARNING: PPOCR_HOME not set. PaddleOCR will download ~500MB-1GB of models to:\n"
+            f"         {default_cache}\n"
+            "         To change this location, set the PPOCR_HOME environment variable.\n"
+            "         Example: export PPOCR_HOME=/your/custom/path/.paddlex\n\n"
+        )
     )
 
 if TYPE_CHECKING:

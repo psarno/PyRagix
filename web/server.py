@@ -34,6 +34,7 @@ from types_models import MetadataDict, RAGConfig, SearchResult
 from web.models import DimensionalityMethod
 from web.visualization_utils import create_embedding_visualization
 
+
 # ===============================
 # Type Definitions
 # ===============================
@@ -45,6 +46,7 @@ class RAGSystemState(TypedDict):
     embedder: SentenceTransformer | None
     config: RAGConfig | None
     loaded: bool
+
 
 # ===============================
 # Request/Response Models
