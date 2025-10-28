@@ -188,8 +188,8 @@ ollama serve
 uv run python ingest_folder.py --fresh ./docs
 
 # Start web interface
-uv run python web_server.py
-# Open http://localhost:8000/web/
+uv run python -m web.server
+# Open http://localhost:8000/
 
 # Or use console interface
 uv run python query_rag.py
@@ -338,7 +338,6 @@ PyRagix uses a modular architecture with clear separation of concerns:
 PyRagix/
 ├── ingest_folder.py        # Document ingestion CLI (thin wrapper)
 ├── query_rag.py           # Console query CLI (thin wrapper)
-├── web_server.py          # FastAPI web server
 ├── config.py              # Configuration management
 ├── settings.toml          # User configuration (auto-generated, TOML format)
 ├── settings.example.toml  # Configuration template
@@ -394,7 +393,11 @@ PyRagix/
 │   ├── test_file_scanner.py # Document discovery tests
 │   └── test_text_processing.py # Text extraction tests
 │
-├── web/                   # Web Interface (TypeScript)
+├── web/                   # Web Interface Module
+│   ├── __init__.py        # Package initialization
+│   ├── server.py          # FastAPI web server and REST API endpoints
+│   ├── models.py          # Web-specific Pydantic models
+│   ├── visualization_utils.py # Embedding visualization utilities
 │   ├── index.html         # Main UI page
 │   ├── style.css          # Responsive styling
 │   ├── script.ts          # TypeScript source (type-safe API client)
