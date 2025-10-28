@@ -65,7 +65,7 @@ This architecture delivers 20-30% improved recall through query expansion, 15-25
 - **Memory Efficient**: Adaptive batch processing and intelligent memory management
 - **Resumable Ingestion**: Incremental updates without reprocessing entire corpus
 - **Cross-Platform**: Runs identically on Windows, Linux, and macOS
-- **Modern Web UI**: Professional TypeScript-based interface with REST API
+- **Modern Web UI**: Professional TypeScript-based interface with REST API (auto-compiled via dev.sh)
 
 ### Document Processing
 - **Multi-Format Support**: PDF, HTML, HTM, and images (JPEG, PNG, TIFF, BMP, WEBP)
@@ -191,8 +191,8 @@ ollama serve
 # Ingest documents (builds FAISS + BM25 indexes)
 uv run python ingest_folder.py --fresh ./docs
 
-# Start web interface
-uv run python web_server.py
+# Start web interface (compiles TypeScript frontend and starts server)
+./dev.sh
 # Open http://localhost:8000/web/
 
 # Or use console interface
@@ -340,6 +340,7 @@ PyRagix/
 ├── ingest_folder.py        # Document ingestion CLI (thin wrapper)
 ├── query_rag.py           # Console query CLI (thin wrapper)
 ├── web_server.py          # FastAPI web server
+├── dev.sh                 # Development script (compiles TypeScript + starts server)
 ├── config.py              # Configuration management
 ├── settings.toml          # User configuration (auto-generated, TOML format)
 ├── settings.example.toml  # Configuration template
@@ -399,13 +400,8 @@ PyRagix/
 │   ├── index.html         # Main UI page
 │   ├── style.css          # Responsive styling
 │   ├── script.ts          # TypeScript source (type-safe API client)
-│   ├── script.js          # Compiled JavaScript
-│   └── tsconfig.json      # TypeScript configuration
+│   └── tsconfig.json      # TypeScript configuration (compile with dev.sh)
 │
-├── local_faiss.index      # FAISS vector index (generated)
-├── bm25_index.pkl         # BM25 keyword index (generated)
-├── documents.db           # Metadata database (generated)
-├── processed_files.txt    # Ingestion log (generated)
 ├── pyrightconfig.json     # Pyright strict type checking config
 └── uv.lock               # Dependency lock file
 ```
