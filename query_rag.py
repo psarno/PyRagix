@@ -47,9 +47,9 @@ def _ensure_utf8_stdio() -> None:
                 errors="replace",
                 line_buffering=True,
             )
+            setattr(sys, stream_name, wrapper)
         except (LookupError, OSError, ValueError):
             continue
-        setattr(sys, stream_name, wrapper)
 
 
 def _query_rag(
