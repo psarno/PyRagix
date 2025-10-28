@@ -107,8 +107,17 @@ def load_processed_files(cfg: ProcessingConfig) -> set[str]:
                         continue
     except UnicodeDecodeError:
         logger.warning("⚠️ processed_files.txt not UTF-8, rewriting...")
-        with open(log_path, "r", encoding="cp1252", errors="ignore") as handle:
-            lines = [line.strip() for line in handle if line.strip()]
+        # Try common fallback encodings (Windows on Windows, latin-1 as last resort)
+        fallback_encodings = ["cp1252", "latin-1", "iso-8859-1"]
+        lines = []
+        for encoding in fallback_encodings:
+            try:
+                with open(log_path, "r", encoding=encoding, errors="ignore") as handle:
+                    lines = [line.strip() for line in handle if line.strip()]
+                if lines:
+                    break
+            except (OSError, LookupError):
+                continue
         with open(log_path, "w", encoding="utf-8") as handle:
             for line in lines:
                 _ = handle.write(f"{line}\n")
