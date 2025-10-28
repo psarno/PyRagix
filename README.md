@@ -416,36 +416,36 @@ PyRagix uses modern Python 3.13+ with strict type safety. All dependencies manag
 
 **Core ML/AI:**
 - **torch** (2.9+): Embedding model backend with CUDA support
-- **sentence-transformers** (5.1+): Dense embeddings and cross-encoder reranking
-- **transformers** (4.57+): HuggingFace model infrastructure
+- **sentence-transformers**: Dense embeddings and cross-encoder reranking
+- **transformers**: HuggingFace model infrastructure
 - **faiss-cpu** (1.12+): High-performance vector search with IVF indexing
-- **rank-bm25** (0.2+): BM25 keyword search for hybrid retrieval
+- **rank-bm25**: BM25 keyword search for hybrid retrieval
 
 **Document Processing:**
-- **paddleocr** (3.3+): OCR for images and scanned documents
+- **paddleocr**: OCR for images and scanned documents
 - **paddlepaddle** (3.2+): PaddleOCR backend
-- **pymupdf** (1.26+): PDF text extraction
-- **beautifulsoup4** (4.14+): HTML parsing
-- **langchain-text-splitters** (1.0+): Semantic chunking with sentence boundaries
-- **pillow** (12.0+): Image processing
+- **pymupdf**: PDF text extraction
+- **beautifulsoup4**: HTML parsing
+- **langchain-text-splitters**: Semantic chunking with sentence boundaries
+- **pillow**: Image processing
 
 **Data & Infrastructure:**
-- **fastapi** (0.120+): Web API and UI server
-- **uvicorn** (0.38+): ASGI server with WebSockets
-- **sqlite-utils** (3.38+): Metadata database management
-- **pydantic** (2.12+): Data validation and settings management
-- **numpy** (2.3+): Numerical operations
+- **fastapi**: Web API and UI server
+- **uvicorn**: ASGI server with WebSockets
+- **sqlite-utils**: Metadata database management
+- **pydantic**: Data validation and settings management
+- **numpy**: Numerical operations
 
 **Utilities:**
-- **scikit-learn** (1.7+): ML utilities (used by reranker)
-- **umap-learn** (0.5+): Dimensionality reduction (visualization)
-- **psutil** (7.1+): System resource monitoring
-- **requests** (2.32+): HTTP client
+- **scikit-learn**: ML utilities (used by reranker)
+- **umap-learn**: Dimensionality reduction (visualization)
+- **psutil**: System resource monitoring
+- **requests**: HTTP client
 
 **Development Tools:**
-- **pyright** (1.1.407+): Strict static type checking
-- **ruff** (0.14+): Fast Python linter and formatter
-- **pytest** (8.4+): Testing framework
+- **pyright**: Strict static type checking
+- **ruff**: Fast Python linter and formatter
+- **pytest**: Testing framework
 
 **Installation:**
 ```bash
