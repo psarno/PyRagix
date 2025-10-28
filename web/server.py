@@ -135,7 +135,7 @@ rag_system: RAGSystemState = {
 # ===============================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load RAG system on startup, cleanup on shutdown."""
+    """Load system on startup, cleanup on shutdown."""
     # Startup
     try:
         print("🚀 Loading RAG system...")

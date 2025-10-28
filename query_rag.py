@@ -54,9 +54,9 @@ def _ensure_utf8_stdio() -> None:
 
 def _query_rag(
     query: str,
-    index: "faiss.Index",
+    index: faiss.Index,
     metadata: list[MetadataDict],
-    embedder: "SentenceTransformer",
+    embedder: SentenceTransformer,
     config: RAGConfig,
     top_k: int | None = None,
     show_sources: bool = True,
@@ -86,7 +86,7 @@ def main(config: RAGConfig | None = None) -> None:
         _validate_config(config)
         index, metadata, embedder = _load_rag_system(config)
 
-        print(f"\nRAG Query System Ready! (Version {__version__})")
+        print(f"Pyragix query system (Version {__version__})")
         print("Type your questions (or 'quit' to exit)")
 
         while True:
