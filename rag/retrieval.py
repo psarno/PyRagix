@@ -217,7 +217,9 @@ def query_rag(
         if debug:
             print(f"\nSending {len(sources_info)} chunks to LLM:")
             for i, result in enumerate(sources_info[:2], start=1):
-                print(f"  Chunk {i} (len={len(result.text)}): {repr(result.text[:100])}...")
+                print(
+                    f"  Chunk {i} (len={len(result.text)}): {repr(result.text[:100])}..."
+                )
             print()
 
         print("🤖 Generating answer...")
