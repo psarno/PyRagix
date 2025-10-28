@@ -17,45 +17,15 @@ from typing import Any, Literal, Sequence
 import numpy as np
 import numpy.typing as npt
 import faiss
-from pydantic import BaseModel, Field
 from sklearn.manifold import TSNE
 import umap
 
 from rag.embeddings import memory_cleanup
 from types_models import MetadataDict
+from web.models import DimensionalityMethod, VisualizationPoint, VisualizationData
 
 FloatArray = npt.NDArray[np.float32]
 EmbeddingArray = npt.NDArray[np.floating[Any]]
-DimensionalityMethod = Literal["umap", "tsne"]
-
-
-# ===============================
-# Pydantic Models
-# ===============================
-class VisualizationPoint(BaseModel):
-    """Single point in embedding visualization space."""
-
-    id: int = Field(description="Unique point identifier")
-    x: float = Field(description="X coordinate in reduced space")
-    y: float = Field(description="Y coordinate in reduced space")
-    z: float | None = Field(None, description="Z coordinate (3D only)")
-    source: str = Field(description="Source document path or [QUERY]")
-    chunk_idx: int = Field(description="Chunk index within source")
-    score: float = Field(ge=0.0, le=1.0, description="Similarity score")
-    text: str = Field(description="Preview text (truncated)")
-    is_query: bool = Field(description="Whether this is the query point")
-
-
-class VisualizationData(BaseModel):
-    """Complete visualization dataset for frontend."""
-
-    points: list[VisualizationPoint] = Field(description="All visualization points")
-    query: str = Field(description="Original query text")
-    method: DimensionalityMethod = Field(description="Reduction method used")
-    dimensions: Literal[2, 3] = Field(description="Output dimensionality")
-    total_points: int = Field(ge=0, description="Total points in visualization")
-    retrieved_count: int = Field(ge=0, description="Number of retrieved documents")
-    error: str | None = Field(None, description="Error message if failed")
 
 
 # ===============================

@@ -5,17 +5,6 @@
 # - CORS enabled for local development
 # ======================================
 
-# ===============================
-# Standard Library
-# ===============================
-
-import traceback
-import warnings
-
-# Suppress misleading PaddlePaddle ccache warning BEFORE any imports
-# (only relevant when building from source, not using pre-built wheels)
-warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
-
 from pathlib import Path
 from typing import TypedDict, Sequence, Literal
 from contextlib import asynccontextmanager
@@ -41,8 +30,19 @@ from rag.embeddings import get_sentence_encoder, l2_normalize, memory_cleanup
 from rag.loader import load_rag_system
 from rag.llm import generate_answer_with_ollama
 from types_models import MetadataDict, RAGConfig, SearchResult
-from visualization_utils import create_embedding_visualization
+from web.models import DimensionalityMethod
+from web.visualization_utils import create_embedding_visualization
 
+# ===============================
+# Standard Library
+# ===============================
+
+import traceback
+import warnings
+
+# Suppress misleading PaddlePaddle ccache warning BEFORE any imports
+# (only relevant when building from source, not using pre-built wheels)
+warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
 
 # ===============================
 # Type Definitions
@@ -55,7 +55,6 @@ class RAGSystemState(TypedDict):
     embedder: SentenceTransformer | None
     config: RAGConfig | None
     loaded: bool
-
 
 # ===============================
 # Request/Response Models
@@ -94,7 +93,7 @@ class VisualizationRequest(BaseModel):
     """Request model for embedding visualization."""
 
     query: str
-    method: Literal["umap", "tsne"] = "umap"
+    method: DimensionalityMethod = "umap"
     dimensions: Literal[2, 3] = 2
     max_points: int = 1000
     top_k: int | None = None
@@ -119,7 +118,7 @@ class VisualizationResponse(BaseModel):
 
     points: list[EmbeddingPoint]
     query: str
-    method: Literal["umap", "tsne"]
+    method: DimensionalityMethod
     dimensions: Literal[2, 3]
     total_points: int
     retrieved_count: int
@@ -520,10 +519,11 @@ async def visualize_embeddings_endpoint(request: VisualizationRequest):
 # ===============================
 # Static Files & Web Interface
 # ===============================
-# Mount static files for web interface (will be created next)
-web_dir = Path("web")
+# Mount static files for web interface
+# server.py is now in web/, so we serve the current directory
+web_dir = Path(__file__).parent
 if web_dir.exists():
-    app.mount("/web", StaticFiles(directory="web", html=True), name="web")
+    app.mount("/web", StaticFiles(directory=str(web_dir), html=True), name="web")
 
 
 # ===============================
