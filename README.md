@@ -201,7 +201,7 @@ uv run python query_rag.py
 
 ## Configuration
 
-PyRagix uses `settings.toml` (TOML format) for all configuration. The file is auto-generated with optimal defaults for your system on first run. A template is available at `settings.example.toml`.
+PyRagix uses `settings.toml` for all configuration. The file is auto-generated with optimal defaults for your system on first run. A template is available at `settings.example.toml`.
 
 ### Production RAG Features (v0.4+)
 
@@ -281,9 +281,6 @@ REQUEST_TIMEOUT = 180
 [retrieval]
 DEFAULT_TOP_K = 7
 ```
-
-Models tested successfully: `qwen2.5:7b`, `llama3.2`, `phi3:3.8b`, `gemma2:2b`. Larger models improve answer quality but increase latency.
-
 ## Advanced Usage
 
 ### Incremental Ingestion
