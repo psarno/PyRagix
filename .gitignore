@@ -45,3 +45,5 @@ settings.toml
 # TypeScript compiled output
 web/script.js
 web/script.js.map
+
+*.sh
