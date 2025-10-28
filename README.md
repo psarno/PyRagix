@@ -1,16 +1,15 @@
 # PyRagix
 
-A production-ready, local-first Retrieval-Augmented Generation (RAG) system built with modern techniques from academic research and production deployments. PyRagix implements query expansion, cross-encoder reranking, hybrid search (semantic + keyword), and semantic chunking to deliver state-of-the-art retrieval quality while maintaining complete data privacy through local-only operation.
+A local-first Retrieval-Augmented Generation (RAG) system built with modern techniques from academic research and production deployments. PyRagix implements query expansion, cross-encoder reranking, hybrid search (semantic + keyword), and semantic chunking to deliver state-of-the-art retrieval quality while maintaining complete data privacy through local-only operation.
 
-Built for developers and organizations that require both performance and privacy, PyRagix runs entirely on your infrastructure with zero external API dependencies for document processing and search. All AI operations leverage local models via Ollama, ensuring your documents never leave your control.
+Built for both performance and privacy, PyRagix runs entirely on your infrastructure with zero external API dependencies for document processing and search. All AI operations leverage local models via Ollama, ensuring your documents never leave your control.
 
 ![Python](https://img.shields.io/badge/python-3.13+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Status](https://img.shields.io/badge/status-Production%20Ready-brightgreen.svg)
 
 ## Architecture
 
-PyRagix implements a multi-stage retrieval pipeline inspired by production RAG systems processing millions of documents:
+PyRagix implements a multi-stage retrieval pipeline.
 
 **Query Pipeline:**
 ```
@@ -60,7 +59,7 @@ This architecture delivers 20-30% improved recall through query expansion, 15-25
 - **Data Sovereignty**: Your documents never leave your network
 - **Configurable Models**: Choose and run any Ollama-compatible LLM locally
 
-### Production-Ready Infrastructure
+### Infrastructure
 - **Scalable Indexing**: FAISS IVF indexing with automatic optimization for dataset size
 - **Memory Efficient**: Adaptive batch processing and intelligent memory management
 - **Resumable Ingestion**: Incremental updates without reprocessing entire corpus
@@ -203,9 +202,7 @@ uv run python query_rag.py
 
 PyRagix uses `settings.toml` for all configuration. The file is auto-generated with optimal defaults for your system on first run. A template is available at `settings.example.toml`.
 
-### Production RAG Features (v0.4+)
-
-Enable modern RAG techniques in `settings.toml`:
+Enable modern RAG techniques:
 
 ```toml
 [query_expansion]
