@@ -11,13 +11,13 @@ import warnings
 # (only relevant when building from source, not using pre-built wheels)
 warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING  # noqa: E402
 
-from __version__ import __version__
-from rag.configuration import DEFAULT_CONFIG, validate_config
-from rag.loader import load_rag_system
-from rag.retrieval import query_rag as _run_query_rag
-from types_models import MetadataDict, RAGConfig
+from __version__ import __version__  # noqa: E402
+from rag.configuration import DEFAULT_CONFIG, validate_config  # noqa: E402
+from rag.loader import load_rag_system  # noqa: E402
+from rag.retrieval import query_rag as _run_query_rag  # noqa: E402
+from types_models import MetadataDict, RAGConfig  # noqa: E402
 
 if TYPE_CHECKING:
     import faiss

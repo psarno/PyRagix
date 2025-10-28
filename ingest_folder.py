@@ -11,9 +11,9 @@ _ = os.environ.setdefault("GLOG_minloglevel", "2")  # Google logging (PaddleOCR)
 _ = os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # TensorFlow/oneDNN
 _ = os.environ.setdefault("ONEDNN_VERBOSE", "0")  # oneDNN verbose output
 
-from ingestion.cli import main as _cli_main
-from ingestion.environment import EnvironmentManager
-from ingestion.pipeline import build_index
+from ingestion.cli import main as _cli_main  # noqa: E402
+from ingestion.environment import EnvironmentManager  # noqa: E402
+from ingestion.pipeline import build_index  # noqa: E402
 
 _ENV_MANAGER = EnvironmentManager()
 
