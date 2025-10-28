@@ -236,12 +236,34 @@ class FileScanner:
         skip_reasons: dict[str, int] = {}
         effective_extensions = cfg.get_effective_extensions()
 
+        # Directories to exclude from traversal
+        excluded_dirs = {
+            ".venv",
+            "venv",
+            ".git",
+            ".hg",
+            ".svn",
+            "node_modules",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".tox",
+            "dist",
+            "build",
+            ".eggs",
+        }
+
         if recurse_subdirs:
             raw_walker = os.walk(root_path)
-            walker: WalkIterator = (
-                DirectoryEntry(dirpath, subdirs, filenames)
-                for dirpath, subdirs, filenames in raw_walker
-            )
+
+            def filtered_walker():
+                for dirpath, subdirs, filenames in raw_walker:
+                    # Modify subdirs in-place to skip excluded directories
+                    subdirs[:] = [d for d in subdirs if d not in excluded_dirs]
+                    yield DirectoryEntry(dirpath, subdirs, filenames)
+
+            walker: WalkIterator = filtered_walker()
         else:
             try:
                 root_files: list[str] = [
