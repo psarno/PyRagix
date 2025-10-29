@@ -4,6 +4,8 @@ A local-first Retrieval-Augmented Generation (RAG) system built with modern tech
 
 Built for both performance and privacy, PyRagix runs entirely on your infrastructure with zero external API dependencies for document processing and search. All AI operations leverage local models via Ollama, ensuring your documents never leave your control.
 
+Looking for a cross-platform .NET solution?  See [pyragix-net](https://github.com/psarno/pyragix-net)!
+
 ![Python](https://img.shields.io/badge/python-3.13+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
