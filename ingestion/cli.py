@@ -85,6 +85,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         type=str,
         help="Comma-separated list of file extensions to process (e.g., 'pdf,png,jpg').",
     )
+    _ = parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print additional diagnostics about each ingestion stage.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     _ = os.system("cls" if os.name == "nt" else "clear")
@@ -107,6 +112,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         fresh_start=args.fresh,
         recurse_subdirs=not args.no_recurse,
         filetypes=args.filetypes,
+        verbose=args.verbose,
     )
 
 

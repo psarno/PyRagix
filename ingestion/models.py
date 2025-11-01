@@ -248,6 +248,7 @@ class ProcessingStats(TypedDict):
     skipped_already_processed: int
     skipped_problems: int
     skip_reasons: dict[str, int]
+    candidate_total: int
 
 
 class ProcessingResult(TypedDict):

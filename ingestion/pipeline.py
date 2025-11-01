@@ -13,6 +13,7 @@ from ingestion.file_filters import load_processed_files
 from ingestion.file_scanner import Chunker, DocumentExtractor, FileScanner
 from ingestion.metadata_store import build_bm25_index, load_metadata
 from ingestion.models import IngestionContext
+from ingestion.progress import ConsoleSpinnerProgress, IngestionStage
 from ingestion.stale_cleaner import StaleDocumentCleaner
 from types_models import MetadataDict
 
@@ -89,6 +90,7 @@ def build_index(
     fresh_start: bool = False,
     recurse_subdirs: bool = True,
     filetypes: str | None = None,
+    verbose: bool = False,
 ) -> None:
     """Build (or update) the FAISS index for the supplied directory."""
     cfg = ctx.config
@@ -161,6 +163,13 @@ def build_index(
 
     index, metadata = load_existing_index(ctx)
     processed = load_processed_files(cfg)
+    progress = ConsoleSpinnerProgress(enabled=not verbose)
+    file_count = 0
+    chunk_total = len(metadata)
+    skipped_already_processed = 0
+    skipped_problems = 0
+    skip_reasons: dict[str, int] = {}
+    total_candidates = 0
 
     if not fresh_start and processed:
         current_files: list[Path] = []
@@ -193,32 +202,78 @@ def build_index(
         print("🔄 Starting file scan and processing (root folder only)...")
 
     try:
+        if progress.enabled:
+            progress.start(stage=IngestionStage.SCANNING, message="Scanning documents...")
+            progress.update(
+                files_completed=0,
+                chunk_total=chunk_total,
+                skipped_already_processed=skipped_already_processed,
+                skipped_problems=skipped_problems,
+            )
         stats = scanner.scan(
             root_path,
             index,
             metadata,
             processed,
             recurse_subdirs=recurse_subdirs,
+            progress=progress,
+            verbose=verbose,
         )
+
+        index = stats["index"]
+        file_count = stats["file_count"]
+        chunk_total = stats["chunk_total"]
+        skipped_already_processed = stats["skipped_already_processed"]
+        skipped_problems = stats["skipped_problems"]
+        skip_reasons = stats["skip_reasons"]
+        total_candidates = stats["candidate_total"]
+        files_seen = (
+            file_count + skipped_already_processed + skipped_problems
+        )
+
+        if progress.enabled:
+            progress.update(
+                stage=IngestionStage.PERSISTING,
+                message="Persisting metadata and indexes...",
+                files_completed=files_seen,
+                total_files=total_candidates,
+                chunk_total=chunk_total,
+                skipped_already_processed=skipped_already_processed,
+                skipped_problems=skipped_problems,
+            )
+
+        build_bm25_index(metadata)
+
+        if progress.enabled:
+            progress.update(
+                stage=IngestionStage.COMPLETED,
+                message=f"Ingestion complete. Files: {file_count}, chunks: {chunk_total}",
+                files_completed=files_seen,
+                total_files=total_candidates,
+                chunk_total=chunk_total,
+                skipped_already_processed=skipped_already_processed,
+                skipped_problems=skipped_problems,
+            )
     except Exception as exc:
-        print(f"❌ Fatal error during file processing: {type(exc).__name__}: {exc}")
+        error_message = (
+            f"❌ Fatal error during file processing: {type(exc).__name__}: {exc}"
+        )
+        if progress.enabled:
+            progress.update(stage=IngestionStage.ERROR, message=error_message)
+            progress.write_line(error_message)
+        else:
+            print(error_message)
+        progress.stop()
         traceback.print_exc()
         sys.exit(1)
-
-    index = stats["index"]
-    file_count = stats["file_count"]
-    chunk_total = stats["chunk_total"]
-    skipped_already_processed = stats["skipped_already_processed"]
-    skipped_problems = stats["skipped_problems"]
-    skip_reasons = stats["skip_reasons"]
+    finally:
+        progress.stop()
 
     print(f"✅ File processing completed. Got {file_count} files, {chunk_total} chunks")
 
     if index is None or chunk_total == 0:
         print("❌ No text extracted. Nothing indexed.")
         sys.exit(2)
-
-    build_bm25_index(metadata)
 
     print("📊 Generating summary...")
     print_summary(
