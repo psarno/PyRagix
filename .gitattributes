@@ -1,0 +1,83 @@
+# Auto-detect text files and normalize to LF in repository
+* text=auto eol=lf
+
+# Python source code
+*.py text eol=lf
+*.pyi text eol=lf
+*.pyx text eol=lf
+
+# Configuration files
+*.toml text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+pyproject.toml text eol=lf
+pyrightconfig.json text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+*.rst text eol=lf
+
+# Web files (TypeScript UI)
+*.html text eol=lf
+*.css text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+tsconfig.json text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+dev.sh text eol=lf
+
+# Windows-specific files (must use CRLF)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Git files
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Lock files
+uv.lock text eol=lf
+*.lock text eol=lf
+
+# Binary files (never touch)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.whl binary
+*.egg binary
+*.pyc binary
+*.pyo binary
+*.so binary
+*.dylib binary
+*.dll binary
+*.exe binary
+
+# ML/AI model files
+*.onnx binary
+*.bin binary
+*.pt binary
+*.pth binary
+*.pkl binary
+*.h5 binary
+*.pb binary
+
+# Database files
+*.db binary
+*.db-shm binary
+*.db-wal binary
+*.sqlite binary
+*.sqlite3 binary
+
+# FAISS index files
+*.index binary
+local_faiss.index binary
+faiss_index.bin binary
