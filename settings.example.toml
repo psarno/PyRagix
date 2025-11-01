@@ -21,7 +21,7 @@ NUMEXPR_MAX_THREADS = 6        # NumExpr threading (fast expression evaluation)
 
 [gpu]
 CUDA_VISIBLE_DEVICES = "0"     # GPU device ID (0 = first GPU, "0,1" = multiple)
-PYTORCH_CUDA_ALLOC_CONF = "max_split_size_mb:1024,garbage_collection_threshold:0.9"
+PYTORCH_ALLOC_CONF = "max_split_size_mb:1024,garbage_collection_threshold:0.9"
 FAISS_DISABLE_CPU = "1"        # Force FAISS to prefer GPU (when GPU available)
 CUDA_LAUNCH_BLOCKING = "0"     # Allow async CUDA operations for performance
 
