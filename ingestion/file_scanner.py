@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
 
 import config
 from ingestion.environment import EnvironmentManager
@@ -30,6 +29,13 @@ from utils.faiss_types import ensure_nprobe
 
 if TYPE_CHECKING:
     import faiss
+    import torch
+
+
+def _get_torch():
+    import torch  # type: ignore
+
+    return torch
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +133,7 @@ class FileScanner:
         embs: np.ndarray | None = None
         embedder = self._ctx.embedder
         embed_start = time.perf_counter()
+        torch = _get_torch()
         try:
             with (
                 torch.inference_mode(),

@@ -2,16 +2,28 @@ import gc
 import logging
 import os
 from contextlib import contextmanager
-from typing import Iterator, cast
-
-import torch
-from sentence_transformers import SentenceTransformer
+from typing import TYPE_CHECKING, Iterator, cast
 
 import config
-from classes.OCRProcessor import OCRProcessor
 from classes.ProcessingConfig import ProcessingConfig
-from ingestion.faiss_manager import FaissManager
 from ingestion.models import EmbeddingModel, IngestionContext
+
+if TYPE_CHECKING:  # pragma: no cover - import for type checking only
+    import torch
+
+
+def _get_torch():
+    """Import torch lazily to avoid heavy startup cost."""
+    import torch  # type: ignore
+
+    return torch
+
+
+def _get_sentence_transformer():
+    """Import SentenceTransformer lazily to avoid heavy startup cost."""
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +59,7 @@ class EnvironmentManager:
         os.environ["GLOG_minloglevel"] = "2"
 
         import paddle
+        torch = _get_torch()
 
         for logger_name in [
             "faiss",
@@ -73,9 +86,13 @@ class EnvironmentManager:
         if self._context is not None:
             return self._context
 
+        from classes.OCRProcessor import OCRProcessor
+        from ingestion.faiss_manager import FaissManager
+
         cfg = ProcessingConfig()
         ocr_processor = OCRProcessor(cfg)
-        embedder = cast(EmbeddingModel, SentenceTransformer(cfg.embed_model))
+        sentence_transformer = _get_sentence_transformer()
+        embedder = cast(EmbeddingModel, sentence_transformer(cfg.embed_model))
         faiss_manager = FaissManager()
 
         self._context = IngestionContext(
@@ -99,6 +116,7 @@ class EnvironmentManager:
     def cleanup(self) -> None:
         """Force garbage collection and CUDA memory cleanup."""
         _ = gc.collect()
+        torch = _get_torch()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 

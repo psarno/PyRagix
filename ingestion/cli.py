@@ -6,8 +6,6 @@ import sys
 from typing import Sequence, cast
 
 import config
-from ingestion.environment import EnvironmentManager
-from ingestion.pipeline import build_index
 
 
 def validate_input_path(folder_path: str) -> None:
@@ -99,11 +97,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     # Validate path before processing
     validate_input_path(args.folder)
 
+    from ingestion.environment import EnvironmentManager
+
     env = EnvironmentManager()
     env.apply()
     ctx = env.initialize()
 
     print(f"Processing folder: {args.folder}")
+
+    from ingestion.pipeline import build_index
 
     build_index(
         args.folder,

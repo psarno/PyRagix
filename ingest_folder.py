@@ -1,5 +1,6 @@
 import os
 import warnings
+from typing import TYPE_CHECKING, Callable
 
 # Suppress misleading PaddlePaddle ccache warning BEFORE any imports
 # (only relevant when building from source, not using pre-built wheels)
@@ -11,28 +12,52 @@ _ = os.environ.setdefault("GLOG_minloglevel", "2")  # Google logging (PaddleOCR)
 _ = os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # TensorFlow/oneDNN
 _ = os.environ.setdefault("ONEDNN_VERBOSE", "0")  # oneDNN verbose output
 
-from ingestion.cli import main as _cli_main  # noqa: E402
-from ingestion.environment import EnvironmentManager  # noqa: E402
-from ingestion.pipeline import build_index  # noqa: E402
+if TYPE_CHECKING:  # pragma: no cover - import hints only
+    from ingestion.environment import EnvironmentManager
 
-_ENV_MANAGER = EnvironmentManager()
 
-__all__ = ["apply_user_configuration", "build_index", "create_context", "main"]
+_ENV_MANAGER: "EnvironmentManager" | None = None
+
+
+def _get_env_manager() -> "EnvironmentManager":
+    """Instantiate EnvironmentManager lazily to avoid eager heavy imports."""
+    global _ENV_MANAGER
+    if _ENV_MANAGER is None:
+        from ingestion.environment import EnvironmentManager
+
+        _ENV_MANAGER = EnvironmentManager()
+    return _ENV_MANAGER
+
+
+def _get_cli_main() -> Callable[[], None]:
+    from ingestion.cli import main as _cli_main
+
+    return _cli_main
 
 
 def main() -> None:
     """Compatibility wrapper that delegates to `ingestion.cli.main`."""
-    _cli_main()
+    _get_cli_main()()
 
 
 def apply_user_configuration() -> None:
     """Backwards-compatible helper to apply configuration settings."""
-    _ENV_MANAGER.apply()
+    _get_env_manager().apply()
 
 
 def create_context():
     """Backwards-compatible helper to retrieve an ingestion context."""
-    return _ENV_MANAGER.initialize()
+    return _get_env_manager().initialize()
+
+
+def build_index(*args, **kwargs):
+    """Lazy proxy to the ingestion pipeline build_index function."""
+    from ingestion.pipeline import build_index as _build_index
+
+    return _build_index(*args, **kwargs)
+
+
+__all__ = ["apply_user_configuration", "build_index", "create_context", "main"]
 
 
 if __name__ == "__main__":
