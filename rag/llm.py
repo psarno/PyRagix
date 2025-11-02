@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from textwrap import dedent
+from collections import OrderedDict
 
 import requests
 
@@ -15,32 +16,46 @@ def generate_answer_with_ollama(
 ) -> str:
     """Call the Ollama HTTP API with contextualized prompt including metadata."""
     formatted_chunks: list[str] = []
-    for i, result in enumerate(search_results, start=1):
+    doc_index_map: "OrderedDict[str, int]" = OrderedDict()
+    for result in search_results:
         source_name = Path(result.source).name
+        if source_name not in doc_index_map:
+            doc_index_map[source_name] = len(doc_index_map) + 1
+
+        doc_id = doc_index_map[source_name]
         metadata_header = (
-            f"[Source: {source_name}, "
-            f"Chunk {result.chunk_idx + 1}/{result.total_chunks}, "
+            f"[Document {doc_id} — Source: {source_name} | "
+            f"Chunk {result.chunk_idx + 1}/{result.total_chunks} | "
             f"Type: {result.file_type.upper()}]"
         )
-        formatted_chunks.append(f"Document {i}:\n{metadata_header}\n{result.text}")
+        formatted_chunks.append(f"{metadata_header}\n{result.text}")
 
     context = "\n\n".join(formatted_chunks)
+    legend = "\n".join(
+        f"- Document {doc_id}: {source_name}"
+        for source_name, doc_id in doc_index_map.items()
+    )
 
-    prompt = dedent(f"""Analyze these documents to answer the question comprehensively. Use ONLY what is written in the documents.
+    prompt = dedent(
+        f"""Analyze these excerpts to answer the question. Use ONLY the provided information.
 
-                        DOCUMENTS:
-                        {context}
+        DOCUMENT REFERENCE:
+        {legend}
 
-                        QUESTION: {query}
+        EXCERPTS:
+        {context}
 
-                        Instructions:
-                        - Review ALL documents above for relevant information
-                        - Synthesize information across multiple documents if available
-                        - Provide a comprehensive answer based on patterns you see
-                        - Quote specific examples from the documents
-                        - If no relevant information exists, respond: "No information found in documents"
+        QUESTION: {query}
 
-                        Response:""")
+        Instructions:
+        - Review ALL excerpts for relevant information
+        - Synthesize information across multiple documents when appropriate
+        - Clearly cite sources using the form `Document X (FileName)`
+        - Quote specific passages verbatim when they materially support the answer
+        - If no relevant information exists, respond exactly: "No information found in documents"
+
+        Response:"""
+    )
 
     try:
         response = requests.post(
