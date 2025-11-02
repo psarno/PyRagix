@@ -13,7 +13,8 @@
   "venvPath": ".",
   "venv": ".venv",
   "extraPaths": [
-    "."
+    ".",
+    "typings"
   ],
   "stubPath": "typings",
   "pythonVersion": "3.13",
@@ -108,7 +109,8 @@
       "root": ".",
       "pythonVersion": "3.13",
       "extraPaths": [
-        "."
+        ".",
+        "typings"
       ]
     }
   ]

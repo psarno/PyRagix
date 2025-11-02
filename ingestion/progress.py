@@ -60,6 +60,7 @@ class ConsoleSpinnerProgress:
     """Renders a lightweight spinner with status updates during ingestion."""
 
     def __init__(self, *, enabled: Optional[bool] = None, interval: float = 0.12) -> None:
+        super().__init__()
         self._enabled = sys.stdout.isatty() if enabled is None else enabled
         self._interval = max(interval, 0.05)
         self._frames = ["-", "\\", "|", "/"]
@@ -154,7 +155,7 @@ class ConsoleSpinnerProgress:
         with self._lock:
             self._clear_line_locked()
             print(text)
-            sys.stdout.flush()
+            _ = sys.stdout.flush()
 
     def stop(self, final_message: str | None = None) -> None:
         """Terminate the render loop and optionally print a final message."""
@@ -179,7 +180,7 @@ class ConsoleSpinnerProgress:
 
         if final_message:
             print(final_message)
-            sys.stdout.flush()
+            _ = sys.stdout.flush()
 
     def _render_loop(self) -> None:
         frame_index = 0
@@ -221,23 +222,23 @@ class ConsoleSpinnerProgress:
             return
 
         with self._lock:
-            sys.stdout.write("\r")
-            sys.stdout.write(line)
+            _ = sys.stdout.write("\r")
+            _ = sys.stdout.write(line)
             pad = self._last_line_length - len(line)
             if pad > 0:
-                sys.stdout.write(" " * pad)
-                sys.stdout.write("\r")
-                sys.stdout.write(line)
-            sys.stdout.flush()
+                _ = sys.stdout.write(" " * pad)
+                _ = sys.stdout.write("\r")
+                _ = sys.stdout.write(line)
+            _ = sys.stdout.flush()
             self._last_line_length = len(line)
 
     def _clear_line_locked(self) -> None:
         if self._last_line_length <= 0:
             return
-        sys.stdout.write("\r")
-        sys.stdout.write(" " * self._last_line_length)
-        sys.stdout.write("\r")
-        sys.stdout.flush()
+        _ = sys.stdout.write("\r")
+        _ = sys.stdout.write(" " * self._last_line_length)
+        _ = sys.stdout.write("\r")
+        _ = sys.stdout.flush()
         self._last_line_length = 0
 
 

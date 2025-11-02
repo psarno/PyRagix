@@ -6,11 +6,11 @@ from typing import Any, cast
 import sqlite_utils
 from sentence_transformers import SentenceTransformer
 
-from types_models import MetadataDict, RAGConfig
-import config as global_config
-
 import faiss
 
+from types_models import MetadataDict, RAGConfig
+import config as global_config
+from utils.faiss_types import SupportsDevice, ensure_nprobe
 
 def _row_to_metadata(row: Mapping[str, Any]) -> MetadataDict:
     return MetadataDict(
@@ -35,9 +35,13 @@ def load_rag_system(
 
     try:
         index = faiss.read_index(str(config.index_path))
-
-        if hasattr(index, "nprobe"):
-            index.nprobe = global_config.NPROBE
+        try:
+            ivf_index = ensure_nprobe(index, context="rag.loader.load_rag_system")
+        except TypeError:
+            is_ivf_index = False
+        else:
+            is_ivf_index = True
+            ivf_index.nprobe = global_config.NPROBE
             print(f"Set IVF nprobe to {global_config.NPROBE}")
 
         db = sqlite_utils.Database(str(config.db_path))
@@ -59,15 +63,11 @@ def load_rag_system(
             )
 
         unique_sources = len(set(m.source for m in metadata))
-        index_type = "IVF" if hasattr(index, "nprobe") else "Flat"
-        device_info = (
-            "GPU"
-            if hasattr(index, "device") and getattr(index, "device", -1) >= 0
-            else "CPU"
-        )
+        device_info = "GPU" if isinstance(index, SupportsDevice) and index.device >= 0 else "CPU"
 
-        if index_type == "IVF":
-            nprobe = getattr(index, "nprobe", "unknown")
+        if is_ivf_index:
+            current_ivf = ensure_nprobe(index, context="rag.loader.load_rag_system (report)")
+            nprobe = current_ivf.nprobe
             print(
                 f"Loaded {index.ntotal} chunks from {unique_sources} files "
                 + f"(IVF index on {device_info}, nprobe={nprobe})"

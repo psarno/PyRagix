@@ -6,11 +6,11 @@ import itertools
 import sys
 import threading
 import time
-from contextlib import AbstractContextManager
+from types import TracebackType
 from typing import Optional
 
 
-class Spinner(AbstractContextManager["Spinner"]):
+class Spinner:
     """A lightweight CLI spinner that runs in a background thread."""
 
     def __init__(
@@ -20,6 +20,7 @@ class Spinner(AbstractContextManager["Spinner"]):
         enabled: bool = True,
         final_message: Optional[str] = None,
     ) -> None:
+        super().__init__()
         self.message = message
         self.interval = interval
         self.enabled = enabled
@@ -34,16 +35,22 @@ class Spinner(AbstractContextManager["Spinner"]):
             self._thread.start()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool | None:
         if not self.enabled:
-            return
+            return None
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join()
         self._clear_line()
         if self.final_message:
-            sys.stdout.write(f"{self.final_message}\n")
-            sys.stdout.flush()
+            _ = sys.stdout.write(f"{self.final_message}\n")
+            _ = sys.stdout.flush()
+        return None
 
     def _run(self) -> None:
         spinner_cycle = itertools.cycle("|/-\\")
@@ -51,15 +58,15 @@ class Spinner(AbstractContextManager["Spinner"]):
             symbol = next(spinner_cycle)
             frame = f"{self.message} {symbol}".rstrip()
             self._line_width = max(self._line_width, len(frame))
-            sys.stdout.write(f"\r{frame}")
-            sys.stdout.flush()
+            _ = sys.stdout.write(f"\r{frame}")
+            _ = sys.stdout.flush()
             time.sleep(self.interval)
         self._clear_line()
 
     @staticmethod
     def _clear_line_width(width: int) -> None:
-        sys.stdout.write("\r" + (" " * width) + "\r")
-        sys.stdout.flush()
+        _ = sys.stdout.write("\r" + (" " * width) + "\r")
+        _ = sys.stdout.flush()
 
     def _clear_line(self) -> None:
         self._clear_line_width(self._line_width)

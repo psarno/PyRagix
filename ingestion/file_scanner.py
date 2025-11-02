@@ -26,6 +26,7 @@ from ingestion.progress import ConsoleSpinnerProgress, IngestionStage
 from ingestion.text_processing import clean_text, chunk_text, extract_text
 from types_models import MetadataDict
 from classes.ProcessingConfig import ProcessingConfig
+from utils.faiss_types import ensure_nprobe
 
 if TYPE_CHECKING:
     import faiss
@@ -118,8 +119,7 @@ class FileScanner:
         if not chunks:
             if verbose:
                 self._emit_message(
-                    f"[verbose] {os.path.basename(path)} produced no chunks "
-                    f"(extract {extract_time:.2f}s).",
+                    f"[verbose] {os.path.basename(path)} produced no chunks (extract {extract_time:.2f}s).",
                     progress,
                 )
             return {"index": index, "chunk_count": 0}
@@ -177,8 +177,7 @@ class FileScanner:
                 )
                 if verbose:
                     self._emit_message(
-                        f"[verbose] Embedding failed for {os.path.basename(path)} "
-                        "even after retry.",
+                        f"[verbose] Embedding failed for {os.path.basename(path)} even after retry.",
                         progress,
                     )
                 return {"index": index, "chunk_count": 0}
@@ -198,16 +197,13 @@ class FileScanner:
                 if not training_success:
                     logger.info("🔄 Creating flat index as fallback...")
                     index, _ = self._faiss_manager.create(dim, index_type="flat")
-                elif hasattr(index, "nprobe"):
-                    index.nprobe = config.NPROBE
+                else:
+                    ivf_index = ensure_nprobe(index, context="FaissManager.create")
+                    ivf_index.nprobe = config.NPROBE
 
         assert index is not None
 
-        if (
-            config.INDEX_TYPE.lower() == "ivf"
-            and hasattr(index, "is_trained")
-            and getattr(index, "is_trained", False)
-        ):
+        if config.INDEX_TYPE.lower() == "ivf" and index.is_trained:
             with self._env.memory_guard():
                 index = self._faiss_manager.maybe_retrain(index, embs)
         else:

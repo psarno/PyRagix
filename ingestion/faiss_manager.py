@@ -6,6 +6,7 @@ import faiss
 import numpy as np
 
 import config
+from utils.faiss_types import SupportsDevice, SupportsNList, ensure_nprobe
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +87,12 @@ class FaissManager:
 
     def train(self, index: faiss.Index, training_data: np.ndarray) -> bool:
         """Train IVF index with provided vectors."""
-        if not hasattr(index, "is_trained") or index.is_trained:
+        if index.is_trained:
             logger.debug("Index already trained or training not required")
             return True
 
         num_vectors = len(training_data)
-        nlist = getattr(index, "nlist", config.NLIST)
+        nlist = index.nlist if isinstance(index, SupportsNList) else config.NLIST
         min_vectors_needed = nlist * 2
 
         if num_vectors < min_vectors_needed:
@@ -135,8 +136,12 @@ class FaissManager:
         if actual_type == "ivf":
             training_success = self.train(new_index, all_vectors)
             if training_success:
-                if hasattr(new_index, "nprobe"):
-                    new_index.nprobe = config.NPROBE
+                try:
+                    ivf_index = ensure_nprobe(new_index, context="FaissManager.maybe_retrain")
+                except TypeError:
+                    pass
+                else:
+                    ivf_index.nprobe = config.NPROBE
                 new_index.add(all_vectors)
                 logger.info("✅ IVF index retraining completed")
                 return new_index
@@ -156,8 +161,12 @@ class FaissManager:
             if gpu_index is not None:
                 index = gpu_index
 
-        if hasattr(index, "nprobe"):
-            index.nprobe = config.NPROBE
+        try:
+            ivf_index = ensure_nprobe(index, context="FaissManager.prepare_loaded_index")
+        except TypeError:
+            pass
+        else:
+            ivf_index.nprobe = config.NPROBE
             logger.info(f"🎯 Set IVF nprobe to {config.NPROBE}")
 
         return index
@@ -165,12 +174,13 @@ class FaissManager:
     def save(self, index: faiss.Index, path: Path) -> None:
         """Persist an index, moving it to CPU first if needed."""
         save_index = index
-        if self._gpu_functions_available and hasattr(index, "device"):
+        if self._gpu_functions_available and isinstance(index, SupportsDevice):
             try:
-                device_val = getattr(index, "device")
-                is_gpu_index = isinstance(device_val, int) and device_val >= 0
+                device_val = index.device
             except Exception:
                 is_gpu_index = False
+            else:
+                is_gpu_index = device_val >= 0
 
             if is_gpu_index:
                 try:
@@ -240,15 +250,14 @@ class FaissManager:
 
     @staticmethod
     def _should_retrain(index: faiss.Index, new_vector_count: int) -> bool:
-        if not hasattr(index, "is_trained") or not hasattr(index, "ntotal"):
-            return False
-        if not getattr(index, "is_trained", False):
+        if not index.is_trained:
             return False
 
-        if index.ntotal > 0:
-            growth_ratio = new_vector_count / index.ntotal
-            return growth_ratio > 0.2
-        return False
+        if index.ntotal == 0:
+            return False
+
+        growth_ratio = new_vector_count / index.ntotal
+        return growth_ratio > 0.2
 
 
 __all__ = ["FaissManager"]

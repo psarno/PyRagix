@@ -5,6 +5,7 @@
 # - CORS enabled for local development
 # ======================================
 
+import platform
 import traceback
 from pathlib import Path
 from typing import TypedDict, Sequence, Literal
@@ -31,6 +32,7 @@ from rag.embeddings import get_sentence_encoder, l2_normalize, memory_cleanup
 from rag.loader import load_rag_system
 from rag.llm import generate_answer_with_ollama
 from types_models import MetadataDict, RAGConfig, SearchResult
+from utils.faiss_types import has_nprobe
 from web.models import DimensionalityMethod
 from web.visualization_utils import create_embedding_visualization
 
@@ -231,7 +233,7 @@ async def health_check():
             index_type="none",
         )
 
-    index_type = "IVF" if hasattr(index, "nprobe") else "Flat"
+    index_type = "IVF" if has_nprobe(index) else "Flat"
 
     return HealthResponse(
         status="healthy",
@@ -523,13 +525,9 @@ if web_dir.exists():
 # ===============================
 # Server Entry Point
 # ===============================
-def _ensure_utf8_stdio() -> None:
-    """Force UTF-8 encoding for Windows Git Bash consoles."""
-    import sys
+def _configure_windows_utf8() -> None:
     import io
-
-    if sys.platform != "win32" or "pytest" in sys.modules:
-        return
+    import sys
 
     for stream_name in ("stdout", "stderr"):
         stream = getattr(sys, stream_name, None)
@@ -548,6 +546,14 @@ def _ensure_utf8_stdio() -> None:
             setattr(sys, stream_name, wrapper)
         except (LookupError, OSError, ValueError):
             continue
+
+
+def _ensure_utf8_stdio() -> None:
+    """Force UTF-8 encoding for Windows Git Bash consoles."""
+    import sys
+
+    if platform.system().lower().startswith("win") and "pytest" not in sys.modules:
+        _configure_windows_utf8()
 
 
 def main() -> None:

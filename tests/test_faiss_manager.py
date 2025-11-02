@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from ingestion.faiss_manager import FaissManager
+from utils.faiss_types import SupportsNList, SupportsQuantizer
 
 
 def _install_faiss_stub(monkeypatch: pytest.MonkeyPatch, *, ivf_raises: bool) -> None:
@@ -50,8 +51,10 @@ def test_create_ivf_uses_stub(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert actual_type == "ivf"
     assert type(index).__name__ == "IvfIndex"
-    assert getattr(index, "nlist", None) == 8
-    assert getattr(index, "quantizer", None).__class__.__name__ == "FlatIndex"
+    assert isinstance(index, SupportsNList)
+    assert isinstance(index, SupportsQuantizer)
+    assert index.nlist == 8
+    assert index.quantizer.__class__.__name__ == "FlatIndex"
 
 
 def test_create_ivf_falls_back_to_flat(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import platform
 import sys
 import traceback
 import warnings
@@ -62,11 +63,7 @@ def _ensure_pipeline_loaded() -> tuple[LoadRagSystemFn, RunQueryFn]:
     return _load_rag_system, _run_query_rag
 
 
-def _ensure_utf8_stdio() -> None:
-    """Force UTF-8 encoding for Windows Git Bash consoles."""
-    if sys.platform != "win32" or "pytest" in sys.modules:
-        return
-
+def _configure_windows_utf8() -> None:
     for stream_name in ("stdout", "stderr"):
         stream = getattr(sys, stream_name, None)
         if stream is None:
@@ -84,6 +81,12 @@ def _ensure_utf8_stdio() -> None:
             setattr(sys, stream_name, wrapper)
         except (LookupError, OSError, ValueError):
             continue
+
+
+def _ensure_utf8_stdio() -> None:
+    """Force UTF-8 encoding for Windows Git Bash consoles."""
+    if platform.system().lower().startswith("win") and "pytest" not in sys.modules:
+        _configure_windows_utf8()
 
 
 def _configure_readline() -> None:
@@ -115,14 +118,14 @@ def _query_rag(
     """Compatibility wrapper around the refactored query routine."""
     _, query_runner = _ensure_pipeline_loaded()
     return query_runner(
-        query=query,
-        index=index,
-        metadata=metadata,
-        embedder=embedder,
-        config_obj=config,
-        top_k=top_k,
-        show_sources=show_sources,
-        debug=debug,
+        query,
+        index,
+        metadata,
+        embedder,
+        config,
+        top_k,
+        show_sources,
+        debug,
     )
 
 
@@ -147,7 +150,7 @@ def main(config: RAGConfig | None = None) -> None:
             enabled=spinner_enabled,
             final_message="✅ Ollama ready." if spinner_enabled else None,
         ):
-            ensure_ollama_model_available(
+            _ = ensure_ollama_model_available(
                 config.ollama_base_url, config.ollama_model
             )
 

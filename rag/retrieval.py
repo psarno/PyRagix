@@ -74,7 +74,7 @@ def query_rag(
         return None
 
     try:
-        ensure_ollama_model_available(
+        _ = ensure_ollama_model_available(
             config_obj.ollama_base_url, config_obj.ollama_model
         )
     except OllamaUnavailableError as exc:

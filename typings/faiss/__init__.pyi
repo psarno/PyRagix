@@ -9,7 +9,6 @@ class Index:
 
     ntotal: int  # Total number of vectors in the index
     d: int  # Dimension of the vectors
-    xb: npt.NDArray[np.float32] | None  # Direct access to vectors (for Flat indices)
     is_trained: bool  # Whether the index has been trained
 
     def search(
@@ -65,11 +64,10 @@ class Index:
         """
         ...
 
-    # IVF index specific attribute
-    nprobe: int
-
 class IndexFlatIP(Index):
     """FAISS Flat index with inner product similarity."""
+
+    xb: npt.NDArray[np.float32] | None
 
     def __init__(self, d: int) -> None:
         """Initialize flat IP index.
@@ -81,6 +79,10 @@ class IndexFlatIP(Index):
 
 class IndexIVFFlat(Index):
     """FAISS IVF (Inverted File) index with flat quantizer."""
+
+    nprobe: int
+    nlist: int
+    quantizer: Index
 
     def __init__(self, quantizer: Index, d: int, nlist: int, metric: int = ...) -> None:
         """Initialize IVF flat index.

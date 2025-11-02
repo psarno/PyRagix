@@ -22,6 +22,7 @@ import umap
 
 from rag.embeddings import memory_cleanup
 from types_models import MetadataDict
+from utils.faiss_types import ensure_reconstruct, ensure_xb
 from web.models import DimensionalityMethod, VisualizationPoint, VisualizationData
 
 FloatArray = npt.NDArray[np.float32]
@@ -34,7 +35,14 @@ EmbeddingArray = npt.NDArray[np.floating[Any]]
 def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> FloatArray:
     """Extract embeddings from FAISS index for visualization."""
     try:
-        if hasattr(index, "reconstruct_n"):
+        try:
+            recon_index = ensure_reconstruct(
+                index, context="visualization_utils._extract_faiss_embeddings"
+            )
+        except TypeError:
+            recon_index = None
+
+        if recon_index is not None:
             # IVF indices - reconstruct vectors
             total_vectors = index.ntotal
 
@@ -47,7 +55,7 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> Flo
             for i in indices:
                 try:
                     vector: FloatArray = np.zeros(index.d, dtype=np.float32)
-                    index.reconstruct(int(i), vector)
+                    recon_index.reconstruct(int(i), vector)
                     reconstructed_vectors.append(vector)
                 except RuntimeError:
                     continue
@@ -58,9 +66,20 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> Flo
             else:
                 raise ValueError("Could not reconstruct vectors from IVF index")
 
-        elif hasattr(index, "xb") and getattr(index, "xb", None) is not None:
+        else:
+            try:
+                xb_index = ensure_xb(
+                    index, context="visualization_utils._extract_faiss_embeddings"
+                )
+                xb_data = xb_index.xb
+            except TypeError as exc:
+                raise ValueError(f"Unsupported FAISS index type: {type(index)}") from exc
+
+            if xb_data is None:
+                raise ValueError(f"Unsupported FAISS index type: {type(index)}")
+
             # Flat indices - direct access
-            embeddings_raw = faiss.vector_to_array(getattr(index, "xb"))
+            embeddings_raw = faiss.vector_to_array(xb_data)
             embedding_dim = index.d
             embeddings_array: FloatArray = embeddings_raw.reshape(
                 -1, embedding_dim
@@ -73,8 +92,6 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> Flo
                 embeddings_array = embeddings_array[indices]
 
             return embeddings_array
-        else:
-            raise ValueError(f"Unsupported FAISS index type: {type(index)}")
 
     except Exception as e:
         print(f"❌ Error extracting embeddings: {e}")

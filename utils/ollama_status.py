@@ -27,9 +27,9 @@ def _normalize_base_url(base_url: str) -> str:
 def _fetch_available_models(base_url: str, timeout: float) -> Iterable[str]:
     response = requests.get(f"{base_url}/api/tags", timeout=timeout)
     if response.status_code != 200:
+        status_code = response.status_code
         raise OllamaUnavailableError(
-            f"Ollama at {base_url} responded with HTTP {response.status_code} "
-            "when fetching model list."
+            f"Ollama at {base_url} responded with HTTP {status_code} when fetching model list."
         )
 
     try:
@@ -61,24 +61,21 @@ def ensure_ollama_model_available(
         )
     except requests.exceptions.ConnectionError as exc:
         raise OllamaUnavailableError(
-            f"Ollama is not reachable at {normalized_url}. "
-            "Start it with `ollama serve`."
+            f"Ollama is not reachable at {normalized_url}. Start it with `ollama serve`."
         ) from exc
     except requests.exceptions.Timeout as exc:
         raise OllamaUnavailableError(
-            f"Ollama did not respond within {timeout} seconds. "
-            "Ensure it is running and reachable."
+            f"Ollama did not respond within {timeout} seconds. Ensure it is running and reachable."
         ) from exc
     except requests.exceptions.RequestException as exc:
-        raise OllamaUnavailableError(
-            f"Ollama request failed: {exc}"
-        ) from exc
+        raise OllamaUnavailableError(f"Ollama request failed: {exc}") from exc
 
     if model not in model_names:
-        raise OllamaUnavailableError(
-            f"Ollama model '{model}' is not installed. "
-            "Install it with `ollama pull {model}` or update OLLAMA_MODEL in settings."
+        message = (
+            f"Ollama model '{model}' is not installed. Install it with `ollama pull {model}` or "
+            + "update OLLAMA_MODEL in settings."
         )
+        raise OllamaUnavailableError(message)
 
     status = OllamaStatus(base_url=normalized_url, available_models=model_names)
     _STATUS_CACHE[normalized_url] = status
