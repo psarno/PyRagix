@@ -20,6 +20,32 @@ def clean_text(value: str) -> str:
     return " ".join(value.split())
 
 
+def _extracted_text_is_usable(text: str) -> bool:
+    """Heuristic guard to detect garbled PDF extractions before using them."""
+    stripped = text.strip()
+    if len(stripped) <= 20:
+        return False
+
+    tokens = stripped.split()
+    if not tokens:
+        return False
+
+    # Many PDFs with broken extraction return every character separated by newlines.
+    # If most tokens are single characters we fall back to OCR instead.
+    if len(tokens) >= 50:
+        single_char_tokens = sum(1 for token in tokens if len(token) == 1)
+        if single_char_tokens / len(tokens) > 0.6:
+            return False
+
+    # Guard against repeated tiny alphabets (e.g. "e e e e") that still pass the
+    # single-character ratio check because of numbers/symbols.
+    alpha_chars = {ch for ch in stripped if ch.isalpha()}
+    if len(alpha_chars) <= 4 and len(stripped) > 100:
+        return False
+
+    return True
+
+
 def chunk_text(
     text: str,
     cfg: ProcessingConfig,
@@ -142,14 +168,14 @@ def safe_dpi_for_page(
 
 
 def _pdf_page_text_or_ocr(
-    page: Any,  # fitz.Page - C++ binding, protocol match too strict
+    page: fitz.Page,
     ocr: OCRProcessorProtocol,
     cfg: ProcessingConfig,
     *,
-    doc: Any | None = None,  # fitz.Document - C++ binding, protocol match too strict
+    doc: fitz.Document | None = None,
 ) -> str:
     text = page.get_text("text") or ""
-    if len(text.strip()) > 20:
+    if _extracted_text_is_usable(text):
         return text
 
     if doc is not None:

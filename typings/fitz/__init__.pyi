@@ -33,6 +33,7 @@ csRGB: Colorspace
 class Pixmap:
     samples: bytes
     def tobytes(self, format: str = "png") -> bytes: ...
+    def getPNGdata(self) -> bytes: ...
 
 class Page:
     rect: Rect
