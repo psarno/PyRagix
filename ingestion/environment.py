@@ -32,7 +32,7 @@ class EnvironmentManager:
             "OMP_NUM_THREADS",
             "NUMEXPR_MAX_THREADS",
             "CUDA_VISIBLE_DEVICES",
-            "PYTORCH_CUDA_ALLOC_CONF",
+            "PYTORCH_ALLOC_CONF",
             "FAISS_DISABLE_CPU",
             "CUDA_LAUNCH_BLOCKING",
         ]

@@ -29,7 +29,7 @@ class PyRagixConfig(BaseModel):
 
     # GPU / CUDA
     CUDA_VISIBLE_DEVICES: str = "0"
-    PYTORCH_CUDA_ALLOC_CONF: str = (
+    PYTORCH_ALLOC_CONF: str = (
         "max_split_size_mb:1024,garbage_collection_threshold:0.9"
     )
     FAISS_DISABLE_CPU: str = "1"
@@ -173,7 +173,7 @@ OMP_NUM_THREADS: int = _config.OMP_NUM_THREADS
 NUMEXPR_MAX_THREADS: int = _config.NUMEXPR_MAX_THREADS
 
 CUDA_VISIBLE_DEVICES: str = _config.CUDA_VISIBLE_DEVICES
-PYTORCH_CUDA_ALLOC_CONF: str = _config.PYTORCH_CUDA_ALLOC_CONF
+PYTORCH_ALLOC_CONF: str = _config.PYTORCH_ALLOC_CONF
 FAISS_DISABLE_CPU: str = _config.FAISS_DISABLE_CPU
 CUDA_LAUNCH_BLOCKING: str = _config.CUDA_LAUNCH_BLOCKING
 
