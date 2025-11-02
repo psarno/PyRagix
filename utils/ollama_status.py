@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import requests
 
@@ -39,8 +39,11 @@ def _fetch_available_models(base_url: str, timeout: float) -> Iterable[str]:
             "Failed to parse Ollama /api/tags response as JSON."
         ) from exc
 
-    models = payload.get("models", [])
+    models: Iterable[Mapping[str, str]] = payload.get("models", [])
     return (entry.get("name", "") for entry in models)
+
+
+_STATUS_CACHE: dict[str, OllamaStatus] = {}
 
 
 def ensure_ollama_model_available(
@@ -48,6 +51,10 @@ def ensure_ollama_model_available(
 ) -> OllamaStatus:
     """Verify Ollama is reachable and the desired model is installed."""
     normalized_url = _normalize_base_url(base_url)
+    cached = _STATUS_CACHE.get(normalized_url)
+    if cached and model in cached.available_models:
+        return cached
+
     try:
         model_names = frozenset(
             name for name in _fetch_available_models(normalized_url, timeout) if name
@@ -73,7 +80,9 @@ def ensure_ollama_model_available(
             "Install it with `ollama pull {model}` or update OLLAMA_MODEL in settings."
         )
 
-    return OllamaStatus(base_url=normalized_url, available_models=model_names)
+    status = OllamaStatus(base_url=normalized_url, available_models=model_names)
+    _STATUS_CACHE[normalized_url] = status
+    return status
 
 
 __all__ = [
