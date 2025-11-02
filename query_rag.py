@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import io
 import platform
 import sys
+import time
 import traceback
 import warnings
 
@@ -12,7 +14,7 @@ import warnings
 # (only relevant when building from source, not using pre-built wheels)
 warnings.filterwarnings("ignore", message=".*ccache.*", category=UserWarning)
 
-from typing import TYPE_CHECKING, Callable  # noqa: E402
+from typing import TYPE_CHECKING, Callable, Sequence, TypeVar  # noqa: E402
 
 from __version__ import __version__  # noqa: E402
 from rag.configuration import DEFAULT_CONFIG, validate_config  # noqa: E402
@@ -46,6 +48,25 @@ RunQueryFn = Callable[
 
 _load_rag_system: LoadRagSystemFn | None = None
 _run_query_rag: RunQueryFn | None = None
+
+T = TypeVar("T")
+
+
+def _parse_cli_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Interactive console for querying the PyRagix knowledge base.",
+    )
+    parser.add_argument(
+        "--no-spinner",
+        action="store_true",
+        help="Disable startup spinners (useful for logging or slow terminals).",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print timing information for startup steps.",
+    )
+    return parser.parse_args(list(argv) if argv is not None else None)
 
 
 def _ensure_pipeline_loaded() -> tuple[LoadRagSystemFn, RunQueryFn]:
@@ -129,7 +150,41 @@ def _query_rag(
     )
 
 
-def main(config: RAGConfig | None = None) -> None:
+def _run_with_feedback(
+    label: str,
+    final_message: str | None,
+    *,
+    spinner_enabled: bool,
+    verbose: bool,
+    func: Callable[[], T],
+) -> T:
+    """Wrap a long-running step with spinner output and optional timing."""
+    if spinner_enabled:
+        print(label, flush=True)
+    else:
+        print(label)
+
+    start = time.perf_counter()
+    with Spinner(label, enabled=spinner_enabled, final_message=None):
+        result = func()
+
+    elapsed = time.perf_counter() - start
+
+    if final_message:
+        print(final_message, flush=True)
+
+    if verbose:
+        print(f"[verbose] {label} completed in {elapsed:.2f}s", flush=True)
+
+    return result
+
+
+def main(
+    config: RAGConfig | None = None,
+    *,
+    enable_spinner: bool | None = None,
+    verbose: bool = False,
+) -> None:
     """Main function to run the RAG query system."""
     _ensure_utf8_stdio()
     _configure_readline()
@@ -140,36 +195,31 @@ def main(config: RAGConfig | None = None) -> None:
     try:
         validate_config(config)
 
-        spinner_enabled = sys.stdout.isatty()
+        spinner_enabled = (
+            sys.stdout.isatty() if enable_spinner is None else enable_spinner
+        )
 
-        if not spinner_enabled:
-            print("Checking Ollama availability...")
-
-        with Spinner(
+        _run_with_feedback(
             "Checking Ollama availability...",
-            enabled=spinner_enabled,
-            final_message="✅ Ollama ready." if spinner_enabled else None,
-        ):
-            _ = ensure_ollama_model_available(
+            "✅ Ollama ready.",
+            spinner_enabled=spinner_enabled,
+            verbose=verbose,
+            func=lambda: ensure_ollama_model_available(
                 config.ollama_base_url, config.ollama_model
-            )
+            ),
+        )
 
-        if not spinner_enabled:
-            print("✅ Ollama ready.")
-
-        if not spinner_enabled:
-            print("Initializing RAG pipeline...")
-
-        with Spinner(
-            "Initializing RAG pipeline...",
-            enabled=spinner_enabled,
-            final_message="✅ RAG pipeline ready." if spinner_enabled else None,
-        ):
+        def _load_pipeline() -> tuple[faiss.Index, list[MetadataDict], SentenceTransformer]:
             loader, _ = _ensure_pipeline_loaded()
-            index, metadata, embedder = loader(config)
+            return loader(config)
 
-        if not spinner_enabled:
-            print("✅ RAG pipeline ready.")
+        index, metadata, embedder = _run_with_feedback(
+            "Initializing RAG pipeline...",
+            "✅ RAG pipeline ready.",
+            spinner_enabled=spinner_enabled,
+            verbose=verbose,
+            func=_load_pipeline,
+        )
 
         print(f"Pyragix query system (Version {__version__})")
         print("Type your questions (or 'quit' to exit)")
@@ -189,7 +239,13 @@ def main(config: RAGConfig | None = None) -> None:
                 continue
 
             _ = _query_rag(
-                query, index, metadata, embedder, config, show_sources=True, debug=True
+                query,
+                index,
+                metadata,
+                embedder,
+                config,
+                show_sources=True,
+                debug=True,
             )
 
     except OllamaUnavailableError as exc:
@@ -208,5 +264,12 @@ def main(config: RAGConfig | None = None) -> None:
         sys.exit(1)
 
 
+def cli(argv: Sequence[str] | None = None) -> None:
+    """CLI entry point that parses arguments before loading heavy dependencies."""
+    args = _parse_cli_args(argv)
+    spinner_flag: bool | None = False if args.no_spinner else None
+    main(enable_spinner=spinner_flag, verbose=args.verbose)
+
+
 if __name__ == "__main__":
-    main()
+    cli()
