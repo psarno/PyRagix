@@ -15,6 +15,10 @@ from rag.embeddings import (
 )
 from rag.llm import generate_answer_with_ollama
 from types_models import MetadataDict, RAGConfig, SearchResult
+from utils.ollama_status import (
+    OllamaUnavailableError,
+    ensure_ollama_model_available,
+)
 from utils.query_expander import expand_query
 from utils.reranker import Reranker
 
@@ -24,6 +28,7 @@ if TYPE_CHECKING:
 
 _reranker: Reranker | None = None
 _bm25_index: BM25Index | None = None
+_ollama_verified: set[tuple[str, str]] = set()
 
 
 def _get_reranker() -> Reranker:
@@ -71,6 +76,18 @@ def query_rag(
     if not query.strip():
         print("⚠️ Empty query provided")
         return None
+
+    base_url = config_obj.ollama_base_url.rstrip("/")
+    model = config_obj.ollama_model
+    cache_key = (base_url, model)
+
+    if cache_key not in _ollama_verified:
+        try:
+            ensure_ollama_model_available(base_url, model)
+        except OllamaUnavailableError as exc:
+            print(f"❌ {exc}")
+            return None
+        _ollama_verified.add(cache_key)
 
     effective_top_k = top_k or config_obj.default_top_k
 
