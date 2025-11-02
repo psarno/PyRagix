@@ -223,3 +223,6 @@ BM25_INDEX_PATH: str = _config.BM25_INDEX_PATH
 ENABLE_SEMANTIC_CHUNKING: bool = _config.ENABLE_SEMANTIC_CHUNKING
 SEMANTIC_CHUNK_MAX_SIZE: int = _config.SEMANTIC_CHUNK_MAX_SIZE
 SEMANTIC_CHUNK_OVERLAP: int = _config.SEMANTIC_CHUNK_OVERLAP
+
+# Expose the full validated settings object for typed access.
+CONFIG: PyRagixConfig = _config

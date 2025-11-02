@@ -37,9 +37,12 @@ class EnvironmentManager:
             "CUDA_LAUNCH_BLOCKING",
         ]
 
+        settings = config.CONFIG
+        env_values = settings.model_dump()
+
         for var in env_vars:
-            if hasattr(config, var):
-                os.environ[var] = str(getattr(config, var))
+            if var in env_values:
+                os.environ[var] = str(env_values[var])
 
         os.environ["GLOG_minloglevel"] = "2"
 
