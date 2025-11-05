@@ -9,13 +9,13 @@ import warnings
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from pydantic import BaseModel, Field, field_validator
+
 warnings.filterwarnings(
     "ignore",
     message=r"builtin type (SwigPy|swigvarlink).*__module__ attribute",
     category=DeprecationWarning,
 )
-
-from pydantic import BaseModel, Field, field_validator
 
 # Type definitions
 IndexType = Literal["flat", "ivf", "ivf_pq"]
