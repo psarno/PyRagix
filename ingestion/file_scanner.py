@@ -169,9 +169,7 @@ class FileScanner:
                 batch_size=config.BATCH_SIZE,
             )
         except torch.OutOfMemoryError as exc:
-            logger.error(
-                "⚠️  CUDA out of memory during embedding for %s: %s", path, exc
-            )
+            logger.error("⚠️  CUDA out of memory during embedding for %s: %s", path, exc)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             smaller_batch = max(1, config.BATCH_SIZE // config.BATCH_SIZE_RETRY_DIVISOR)

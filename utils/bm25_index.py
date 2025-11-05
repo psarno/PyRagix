@@ -16,7 +16,9 @@ from collections.abc import Sequence
 try:
     from rank_bm25 import BM25Okapi
 except ImportError:
-    BM25Okapi = None  # Deferred failure: only raised when callers actually build the index.
+    BM25Okapi = (
+        None  # Deferred failure: only raised when callers actually build the index.
+    )
 
 logger = logging.getLogger(__name__)
 

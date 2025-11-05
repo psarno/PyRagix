@@ -86,7 +86,9 @@ def _extract_faiss_embeddings(index: FaissIndex, max_points: int = 1000) -> Floa
                 raise ValueError(f"Unsupported FAISS index type: {type(index)}")
 
             # Flat indices - direct access
-            embeddings_raw = np.asarray(faiss.vector_to_array(xb_data), dtype=np.float32)
+            embeddings_raw = np.asarray(
+                faiss.vector_to_array(xb_data), dtype=np.float32
+            )
             embedding_dim = index.d
             embeddings_array: FloatMatrix = embeddings_raw.reshape(
                 -1, embedding_dim

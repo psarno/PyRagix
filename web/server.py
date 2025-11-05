@@ -35,6 +35,7 @@ from utils.faiss_types import FaissIndex, has_nprobe
 from web.models import DimensionalityMethod
 from web.visualization_utils import create_embedding_visualization
 
+
 # ===============================
 # Type Definitions
 # ===============================
