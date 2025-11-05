@@ -1,3 +1,5 @@
+<img width="500" height="auto" alt="image" src="https://github.com/user-attachments/assets/851dda34-8152-4436-80f9-7d792e676f5b" />
+
 # PyRagix
 
 A local-first Retrieval-Augmented Generation (RAG) system built with modern techniques from academic research and production deployments. PyRagix implements query expansion, cross-encoder reranking, hybrid search (semantic + keyword), and semantic chunking to deliver state-of-the-art retrieval quality while maintaining complete data privacy through local-only operation.
