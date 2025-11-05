@@ -11,33 +11,51 @@ Looking for a cross-platform .NET solution?  See [pyragix-net](https://github.co
 
 ## Architecture
 
-PyRagix implements a multi-stage retrieval pipeline.
+PyRagix implements coordinated ingestion and query pipelines that stay in sync through a shared metadata store.
 
-**Query Pipeline:**
-```
-User Query
-  ↓
-Multi-Query Expansion (3-5 variants via local LLM)
-  ↓
-Hybrid Search (FAISS semantic + BM25 keyword with dynamic weighting)
-  ↓
-Cross-Encoder Reranking (top-20 → top-7 by relevance)
-  ↓
-Answer Generation (local Ollama LLM)
+**Query Pipeline**
+
+```mermaid
+flowchart TD
+    Q["User query"] --> Validate["Runtime checks<br/>(config, FAISS, BM25, Ollama)"]
+    Validate --> Expand{"Query expansion enabled?"}
+    Expand -->|Yes| Gen["Generate rewrites via Ollama"]
+    Gen --> Variants["Aggregate original + rewrites"]
+    Expand -->|No| Variants
+    Variants --> Embed["Batch embed variants<br/>(SentenceTransformer)"]
+    Embed --> SearchFAISS["FAISS vector search<br/>per variant"]
+    SearchFAISS --> Hybrid{"Hybrid search enabled?"}
+    Hybrid -->|Yes| BM25["Lookup BM25 keyword scores"]
+    BM25 --> Fuse["Dynamic alpha fusion<br/>(semantic + keyword)"]
+    Hybrid -->|No| Rerank
+    Fuse --> Rerank["Cross-encoder reranking<br/>(top-k)"]
+    Rerank --> Answer["Answer generation via Ollama"]
+    Answer --> Output["Final answer with cited chunks"]
 ```
 
-**Ingestion Pipeline:**
+**Ingestion Pipeline**
+
+```mermaid
+flowchart TD
+    Start["ingest_folder CLI"] --> Env["Environment manager<br/>applies runtime settings"]
+    Env --> Stale["Detect stale documents<br/>and choose strategy"]
+    Stale --> Scan["Scan filesystem + skip rules<br/>(extension filter, SHA256 dedupe)"]
+    Scan --> Extract["Extract text<br/>(PyMuPDF, BeautifulSoup, PaddleOCR)"]
+    Extract --> Chunk["Semantic chunking<br/>(sentence-aware)"]
+    Chunk --> Embed["Embed chunks<br/>(SentenceTransformer)"]
+    Embed --> Index{"Existing FAISS index?"}
+    Index -->|No| Create["Create index and add vectors"]
+    Index -->|Yes| Update["Append vectors"]
+    Create --> Persist
+    Update --> Persist["Persist metadata to SQLite<br/>and processed_files log"]
+    Persist --> Hybrid{"Hybrid search enabled?"}
+    Hybrid -->|Yes| BuildBM25["Build/refresh BM25 index"]
+    Hybrid -->|No| Done
+    BuildBM25 --> Done["Pipeline complete"]
 ```
-Document Input (PDF, HTML, Images)
-  ↓
-Text Extraction (PyMuPDF, BeautifulSoup, PaddleOCR)
-  ↓
-Semantic Chunking (sentence-boundary aware)
-  ↓
-Embedding Generation (local sentence-transformers)
-  ↓
-Dual Indexing (FAISS vector + BM25 keyword)
-```
+
+> [!NOTE]
+> Query-time hybrid weighting automatically adapts to query length, giving short queries stronger keyword bias and long-form questions more semantic focus.
 
 This architecture delivers 20-30% improved recall through query expansion, 15-25% better precision via reranking, and 30-40% better structured query handling through hybrid search.
 
@@ -167,6 +185,9 @@ This architecture ensures maintainability, testability, and type safety across 3
 1. **Python 3.13+** with uv package manager (recommended) or pip
 2. **Ollama** for local LLM inference - download from [ollama.com](https://ollama.com)
 3. **8GB+ RAM** (16GB+ recommended for optimal performance)
+
+> [!TIP]
+> Use `uv sync --frozen` in CI or shared environments to guarantee the resolved versions match the committed `uv.lock`.
 
 ### Installation
 
