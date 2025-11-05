@@ -1,10 +1,19 @@
+"""Top-level orchestration for the ingestion pipeline.
+
+The Python and .NET implementations share the same high-level sequence: prepare
+environment guards, load existing FAISS/metadata artifacts, reconcile the
+processed-ledger, scan and chunk new documents, then atomically persist FAISS,
+SQLite, and BM25 resources. Comments below call out the ordering guarantees so
+schema or retry changes stay mirrored across runtimes.
+"""
+
 from __future__ import annotations
 
 import logging
 import sys
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import cast
 
 import config
 from classes.ProcessingConfig import ProcessingConfig
@@ -16,9 +25,8 @@ from ingestion.models import IngestionContext
 from ingestion.progress import ConsoleSpinnerProgress, IngestionStage
 from ingestion.stale_cleaner import StaleDocumentCleaner
 from types_models import MetadataDict
-
-if TYPE_CHECKING:
-    import faiss
+from utils.faiss_importer import faiss
+from utils.faiss_types import FaissIndex
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -29,18 +37,21 @@ logging.basicConfig(
         logging.FileHandler(config.INGESTION_LOG_FILE, encoding="utf-8"),
     ],
 )
+# Mirror ingestion logs to stdout and to ingestion.log so long runs have durable diagnostics.
 
 
 def load_existing_index(
     ctx: IngestionContext,
-) -> tuple[faiss.Index | None, list[MetadataDict]]:
-    """Load existing FAISS index and metadata if present on disk."""
-    import faiss
+) -> tuple[FaissIndex | None, list[MetadataDict]]:
+    """Load existing FAISS index and metadata if present on disk.
 
+    The pair keeps the FAISS vectors and metadata rows in lock-step so the scan
+    stage can append new chunks without re-ingesting everything.
+    """
     cfg = ctx.config
     if cfg.index_path.exists() and cfg.db_path.exists():
         print("📂 Loading existing index and metadata...")
-        index = faiss.read_index(str(cfg.index_path))
+        index = cast(FaissIndex, faiss.read_index(str(cfg.index_path)))
 
         metadata = load_metadata(cfg.db_path)
 
@@ -92,7 +103,15 @@ def build_index(
     filetypes: str | None = None,
     verbose: bool = False,
 ) -> None:
-    """Build (or update) the FAISS index for the supplied directory."""
+    """Build (or update) the FAISS index for the supplied directory.
+
+    High-level flow:
+      1. Validate configuration, environment, and crash logs.
+      2. Prime in-memory state from existing FAISS/SQLite/processed-ledger artifacts.
+      3. Scan, extract, chunk, and embed documents via `FileScanner`.
+      4. Persist updated indexes (FAISS + BM25) and report summary statistics.
+    Each stage mirrors the .NET ingest command so behaviour stays cross-platform.
+    """
     cfg = ctx.config
     root_path = Path(root_folder)
     env_manager = env or EnvironmentManager()
@@ -106,6 +125,7 @@ def build_index(
 
     crash_log_path = Path(config.CRASH_LOG_FILE)
     if crash_log_path.exists():
+        # Clear the previous crash report to avoid confusion with a successful retry.
         crash_log_path.unlink()
         print("🗑️  Cleared previous crash log")
 
@@ -116,6 +136,7 @@ def build_index(
         print(f"🎯 IVF settings: nlist={config.NLIST}, nprobe={config.NPROBE}")
 
     if config.GPU_ENABLED:
+        # Share the GPU readiness check so users know immediately if FAISS will fall back to CPU.
         gpu_status = "Active" if ctx.faiss_manager.gpu_ready else "Failed"
         print(f"🎮 FAISS GPU acceleration: {gpu_status} (device {config.GPU_DEVICE})")
         if not ctx.faiss_manager.gpu_ready:
@@ -187,6 +208,7 @@ def build_index(
         ]
 
         cleaner = StaleDocumentCleaner(cfg)
+        # Detect whether the on-disk corpus diverged from the processed ledger before ingesting.
         fresh_start_requested, processed = cleaner.check_and_handle_stale_documents(
             processed, filtered_files
         )
@@ -203,6 +225,7 @@ def build_index(
 
     try:
         if progress.enabled:
+            # Spinner keeps the terminal responsive while the pipeline runs extraction/embedding.
             progress.start(
                 stage=IngestionStage.SCANNING, message="Scanning documents..."
             )
@@ -212,6 +235,7 @@ def build_index(
                 skipped_already_processed=skipped_already_processed,
                 skipped_problems=skipped_problems,
             )
+        # Scanner drives the full ingestion loop (extract -> chunk -> embed -> persist-to-FAISS).
         stats = scanner.scan(
             root_path,
             index,
@@ -242,9 +266,11 @@ def build_index(
                 skipped_problems=skipped_problems,
             )
 
+        # BM25 persistence runs after FAISS/metadata so hybrid search sees consistent artifacts.
         build_bm25_index(metadata)
 
         if progress.enabled:
+            # Final pulse ensures the spinner prints completion metrics before stopping.
             progress.update(
                 stage=IngestionStage.COMPLETED,
                 message=f"Ingestion complete. Files: {file_count}, chunks: {chunk_total}",

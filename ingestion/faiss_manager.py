@@ -1,18 +1,29 @@
+"""FAISS lifecycle orchestration for the ingestion pipeline.
+
+The ingestion pipeline opens FAISS indexes on demand, sometimes with GPU
+acceleration.  This module keeps the optimisation knobs (nlist, nprobe, GPU
+memory fractions) close to configuration so callers only express intent and
+avoid repetitive boilerplate for GPU detection or retry logic.  All GPU calls
+are optional: the manager validates that FAISS was compiled with GPU support,
+namespaced functions are available, and the configured device is reachable
+before attempting to move indexes across devices.
+"""
+
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-import faiss
 import numpy as np
 
 import config
-from utils.faiss_types import SupportsDevice, SupportsNList, ensure_nprobe
+from utils.faiss_importer import faiss
+from utils.faiss_types import FaissIndex, SupportsDevice, SupportsNList, ensure_nprobe
 
 logger = logging.getLogger(__name__)
 
 
 class FaissManager:
-    """Encapsulates FAISS index + GPU resource management."""
+    """Encapsulate FAISS index, training, and GPU resource management."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -49,14 +60,20 @@ class FaissManager:
         *,
         index_type: str | None = None,
         nlist: int | None = None,
-    ) -> tuple[faiss.Index, str]:
-        """Create an index and move it to GPU if available."""
+    ) -> tuple[FaissIndex, str]:
+        """Create an index based on config and move it to GPU when viable.
+
+        The caller receives the index along with the effective type ("flat" or
+        "ivf") so downstream persistence can record which heuristics to apply
+        when reloading. IVF creation failures are tolerated and gracefully fall
+        back to a flat index to keep ingestion progressing with fewer vectors.
+        """
         if index_type is None:
             index_type = config.INDEX_TYPE
         if nlist is None:
             nlist = config.NLIST
 
-        cpu_index: faiss.Index | None = None
+        cpu_index: FaissIndex | None = None
         actual_type = "flat"
         normalized_type = index_type.lower()
 
@@ -77,6 +94,8 @@ class FaissManager:
             actual_type = "flat"
             logger.info(f"🔧 Created flat index: dim={dim}")
 
+        assert cpu_index is not None
+
         if self._gpu_resources is not None and config.GPU_ENABLED:
             gpu_index = self._move_index_to_gpu(cpu_index)
             if gpu_index is not None:
@@ -85,8 +104,8 @@ class FaissManager:
 
         return cpu_index, actual_type
 
-    def train(self, index: faiss.Index, training_data: np.ndarray) -> bool:
-        """Train IVF index with provided vectors."""
+    def train(self, index: FaissIndex, training_data: np.ndarray) -> bool:
+        """Train an IVF index, enforcing minimum vector counts before training."""
         if index.is_trained:
             logger.debug("Index already trained or training not required")
             return True
@@ -114,7 +133,7 @@ class FaissManager:
             logger.info("Will retry with accumulated vectors later...")
             return False
 
-    def maybe_retrain(self, index: faiss.Index, new_vectors: np.ndarray) -> faiss.Index:
+    def maybe_retrain(self, index: FaissIndex, new_vectors: np.ndarray) -> FaissIndex:
         """Add vectors, retraining IVF indexes when the growth ratio is high."""
         if not self._should_retrain(index, len(new_vectors)):
             index.add(new_vectors)
@@ -156,7 +175,7 @@ class FaissManager:
         logger.info("✅ Switched to flat index with all vectors")
         return new_index
 
-    def prepare_loaded_index(self, index: faiss.Index) -> faiss.Index:
+    def prepare_loaded_index(self, index: FaissIndex) -> FaissIndex:
         """Move an index to GPU (if available) and apply config tuning."""
         if self._gpu_resources is not None and config.GPU_ENABLED:
             gpu_index = self._move_index_to_gpu(index)
@@ -175,7 +194,7 @@ class FaissManager:
 
         return index
 
-    def save(self, index: faiss.Index, path: Path) -> None:
+    def save(self, index: FaissIndex, path: Path) -> None:
         """Persist an index, moving it to CPU first if needed."""
         save_index = index
         if self._gpu_functions_available and isinstance(index, SupportsDevice):
@@ -188,14 +207,16 @@ class FaissManager:
 
             if is_gpu_index:
                 try:
-                    save_index = faiss.index_gpu_to_cpu(index)
+                    save_index_raw = faiss.index_gpu_to_cpu(cast(Any, index))
+                    save_index = cast(FaissIndex, save_index_raw)
                     logger.debug("Moved GPU index to CPU for saving")
                 except Exception as exc:
                     logger.warning(f"Failed to move GPU index to CPU for saving: {exc}")
 
-        faiss.write_index(save_index, str(path))
+        faiss.write_index(cast(Any, save_index), str(path))
 
     def _detect_gpu_faiss(self) -> tuple[bool, str]:
+        """Check whether FAISS exposes GPU helpers and whether the device works."""
         required_attrs = [
             "StandardGpuResources",
             "index_cpu_to_gpu",
@@ -212,8 +233,10 @@ class FaissManager:
 
         try:
             gpu_res = faiss.StandardGpuResources()
-            test_index = faiss.IndexFlatIP(384)
-            _ = faiss.index_cpu_to_gpu(gpu_res, config.GPU_DEVICE, test_index)
+            test_index = cast(FaissIndex, faiss.IndexFlatIP(384))
+            _ = faiss.index_cpu_to_gpu(
+                gpu_res, config.GPU_DEVICE, cast(Any, test_index)
+            )
             del gpu_res, test_index
             self._gpu_functions_available = True
             return True, f"GPU {config.GPU_DEVICE} available and working"
@@ -222,6 +245,7 @@ class FaissManager:
             return False, f"GPU functions available but GPU failed: {str(exc)[:100]}"
 
     def _create_gpu_resources(self) -> Any | None:
+        """Instantiate FAISS GPU resources using the configured memory fraction."""
         if not self._gpu_functions_available:
             return None
 
@@ -238,22 +262,25 @@ class FaissManager:
             logger.error(f"⚠️  Failed to create GPU resources: {exc}")
             return None
 
-    def _move_index_to_gpu(self, index: faiss.Index) -> faiss.Index | None:
+    def _move_index_to_gpu(self, index: FaissIndex) -> FaissIndex | None:
+        """Move an index onto the configured GPU in-place when resources exist."""
         if not self._gpu_functions_available or self._gpu_resources is None:
             return None
 
         try:
             gpu_index = faiss.index_cpu_to_gpu(
-                self._gpu_resources, config.GPU_DEVICE, index
+                self._gpu_resources, config.GPU_DEVICE, cast(Any, index)
             )
             logger.info("🎮 Index moved to GPU")
-            return gpu_index
+            return cast(FaissIndex, gpu_index)
         except Exception as exc:
             logger.error(f"⚠️  Failed to move index to GPU: {exc}")
             return None
 
     @staticmethod
-    def _should_retrain(index: faiss.Index, new_vector_count: int) -> bool:
+    def _should_retrain(index: FaissIndex, new_vector_count: int) -> bool:
+        # When more than 20% new vectors arrive we re-train to keep IVF centroids
+        # aligned.  Below the threshold incremental `add` keeps latency lower.
         if not index.is_trained:
             return False
 

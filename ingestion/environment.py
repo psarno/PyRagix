@@ -1,12 +1,38 @@
+"""Process-wide environment configuration for the ingestion pipeline.
+
+This module centralises knobs that influence native dependencies (PyTorch,
+FAISS, PaddleOCR).  Configuration values originating from `settings.toml` are
+mirrored into environment variables before those libraries are imported so that
+thread counts, CUDA visibility, and allocator behaviour stay predictable across
+ingestion runs. Expensive libraries are imported lazily to keep CLI start-up
+fast in workflows that only manipulate metadata.
+"""
+
+from __future__ import annotations
+
 import gc
 import logging
 import os
 from contextlib import contextmanager
-from typing import Iterator, cast
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 import config
 from classes.ProcessingConfig import ProcessingConfig
 from ingestion.models import EmbeddingModel, IngestionContext
+
+if TYPE_CHECKING:
+    from classes.OCRProcessor import OCRProcessor as OCRProcessorType
+    from ingestion.faiss_manager import FaissManager as FaissManagerType
+    from sentence_transformers import SentenceTransformer as SentenceTransformerType
+else:
+    OCRProcessorType = Any
+    FaissManagerType = Any
+    SentenceTransformerType = Any
+
+# Lazily populated globals so tests can monkeypatch the constructors without importing heavy deps up front.
+OCRProcessor: type[OCRProcessorType] | None = None
+SentenceTransformer: type[SentenceTransformerType] | None = None
+FaissManager: type[FaissManagerType] | None = None
 
 
 def _get_torch():
@@ -16,25 +42,42 @@ def _get_torch():
     return torch
 
 
-def _get_sentence_transformer():
-    """Import SentenceTransformer lazily to avoid heavy startup cost."""
-    from sentence_transformers import SentenceTransformer
+def _ensure_factories() -> tuple[
+    type[OCRProcessorType], type[SentenceTransformerType], type[FaissManagerType]
+]:
+    """Ensure OCR, embedder, and FAISS constructors are available (lazy import)."""
+    global OCRProcessor, SentenceTransformer, FaissManager
 
-    return SentenceTransformer
+    if OCRProcessor is None:
+        from classes.OCRProcessor import OCRProcessor as _OCRProcessor
+
+        OCRProcessor = _OCRProcessor
+
+    if SentenceTransformer is None:
+        from sentence_transformers import SentenceTransformer as _SentenceTransformer
+
+        SentenceTransformer = _SentenceTransformer
+
+    if FaissManager is None:
+        from ingestion.faiss_manager import FaissManager as _FaissManager
+
+        FaissManager = _FaissManager
+
+    return OCRProcessor, SentenceTransformer, FaissManager
 
 
 logger = logging.getLogger(__name__)
 
 
 class EnvironmentManager:
-    """Owns environment/application state setup for ingestion."""
+    """Apply ingestion-specific environment tuning and shared context creation."""
 
     def __init__(self) -> None:
         super().__init__()
         self._context: IngestionContext | None = None
 
     def apply(self) -> None:
-        """Apply configuration-driven environment tuning."""
+        """Materialise config-driven env vars and silence verbose dependencies."""
         env_vars = [
             "TORCH_NUM_THREADS",
             "OPENBLAS_NUM_THREADS",
@@ -54,6 +97,7 @@ class EnvironmentManager:
             if var in env_values:
                 os.environ[var] = str(env_values[var])
 
+        # glog must be constrained before Paddle's native libraries initialise.
         os.environ["GLOG_minloglevel"] = "2"
 
         import paddle
@@ -81,18 +125,20 @@ class EnvironmentManager:
         )
 
     def initialize(self) -> IngestionContext:
-        """Instantiate the shared ingestion context, caching the result."""
+        """Instantiate the shared ingestion context, caching the result.
+
+        All heavyweight dependencies (OCR, embeddings, FAISS) are constructed
+        once here so downstream ingestion stages can share them without re-doing
+        GPU/CPU initialisation work mid-pipeline.
+        """
         if self._context is not None:
             return self._context
 
-        from classes.OCRProcessor import OCRProcessor
-        from ingestion.faiss_manager import FaissManager
-
         cfg = ProcessingConfig()
-        ocr_processor = OCRProcessor(cfg)
-        sentence_transformer = _get_sentence_transformer()
-        embedder = cast(EmbeddingModel, sentence_transformer(cfg.embed_model))
-        faiss_manager = FaissManager()
+        ocr_cls, embed_cls, faiss_cls = _ensure_factories()
+        ocr_processor = ocr_cls(cfg)
+        embedder = cast(EmbeddingModel, embed_cls(cfg.embed_model))
+        faiss_manager = faiss_cls()
 
         self._context = IngestionContext(
             config=cfg,

@@ -15,12 +15,12 @@ from rag.embeddings import (
 )
 from rag.llm import generate_answer_with_ollama
 from types_models import MetadataDict, RAGConfig, SearchResult
+from utils.faiss_types import FaissIndex
 from utils.ollama_status import OllamaUnavailableError, ensure_ollama_model_available
 from utils.query_expander import expand_query
 from utils.reranker import Reranker
 
 if TYPE_CHECKING:
-    import faiss
     from utils.bm25_index import BM25Index
 
 _reranker: Reranker | None = None
@@ -51,6 +51,7 @@ def compute_dynamic_hybrid_alpha(query: str, base_alpha: float) -> float:
 
 
 def _get_reranker() -> Reranker:
+    """Lazily cache the cross-encoder reranker to avoid repeated model loads."""
     global _reranker
     if _reranker is None:
         _reranker = Reranker(model_name=config.RERANKER_MODEL)
@@ -58,6 +59,7 @@ def _get_reranker() -> Reranker:
 
 
 def _get_bm25_index() -> BM25Index | None:
+    """Return the cached BM25 keyword index if hybrid search is enabled."""
     global _bm25_index
 
     if not config.ENABLE_HYBRID_SEARCH:
@@ -83,7 +85,7 @@ def _get_bm25_index() -> BM25Index | None:
 
 def query_rag(
     query: str,
-    index: "faiss.Index",
+    index: FaissIndex,
     metadata: list[MetadataDict],
     embedder: SentenceTransformer,
     config_obj: RAGConfig,
@@ -91,7 +93,12 @@ def query_rag(
     show_sources: bool = True,
     debug: bool = True,
 ) -> str | None:
-    """Execute the end-to-end Retrieval-Augmented Generation flow."""
+    """Run the full retrieval pipeline before delegating answer generation to Ollama.
+
+    The flow performs safety checks, optional query expansion, FAISS retrieval,
+    optional BM25 fusion, optional cross-encoder reranking, then sends the most
+    relevant chunks to the LLM. Returns the generated answer or None on failure.
+    """
     if not query.strip():
         print("⚠️ Empty query provided")
         return None
@@ -131,6 +138,7 @@ def query_rag(
         all_results: dict[int, SearchResult] = {}
 
         # Batch encode all query variants at once for better performance
+        # and ensure the embeddings get cleaned up even on failure.
         with memory_cleanup():
             all_query_embs = encode_queries(
                 queries_to_search,
@@ -151,6 +159,7 @@ def query_rag(
                     continue
 
                 if idx >= len(metadata):
+                    # Detect drift between FAISS index and metadata storage early to avoid silent corruption.
                     error_msg = (
                         f"FAISS index corruption: index {idx} >= metadata size {len(metadata)}. "
                         f"FAISS and metadata are out of sync. Rebuild your index."
@@ -184,6 +193,9 @@ def query_rag(
             bm25_index = _get_bm25_index()
             if bm25_index is not None:
                 print("🔀 Fusing FAISS semantic scores with BM25 keyword scores...")
+                # Combine semantic and lexical signals with a dynamic alpha that
+                # biases shorter queries toward keyword matches and longer queries
+                # toward semantic context.
                 try:
                     from utils.bm25_index import normalize_bm25_scores
 
@@ -242,6 +254,7 @@ def query_rag(
                     )
 
         if enable_reranking and sources_info:
+            # Re-run the top candidates through the cross-encoder for higher precision.
             print(f"🎯 Reranking top {len(sources_info)} results...")
             reranker = _get_reranker()
             sources_info = reranker.rerank(query, sources_info, top_k=effective_top_k)

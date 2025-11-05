@@ -5,8 +5,15 @@
 # ======================================
 
 import tomllib
+import warnings
 from pathlib import Path
 from typing import Any, Literal, cast
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"builtin type (SwigPy|swigvarlink).*__module__ attribute",
+    category=DeprecationWarning,
+)
 
 from pydantic import BaseModel, Field, field_validator
 

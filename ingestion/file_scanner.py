@@ -1,3 +1,11 @@
+"""Directory traversal and chunk persistence pipeline.
+
+This module stitches together extraction, chunking, embedding, and FAISS/BM25
+persistence.  Its control flow mirrors the .NET `FileScanner` so both runtimes
+apply identical retry policies, skip rules, and progress reporting while
+writing metadata and updating the processed ledger.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -6,9 +14,15 @@ import time
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 import config
 from ingestion.environment import EnvironmentManager
@@ -25,10 +39,7 @@ from ingestion.progress import ConsoleSpinnerProgress, IngestionStage
 from ingestion.text_processing import clean_text, chunk_text, extract_text
 from types_models import MetadataDict
 from classes.ProcessingConfig import ProcessingConfig
-from utils.faiss_types import ensure_nprobe
-
-if TYPE_CHECKING:
-    import faiss
+from utils.faiss_types import FaissIndex, ensure_nprobe
 
 
 def _get_torch():
@@ -48,8 +59,23 @@ class DocumentExtractor:
         self._cfg = cfg
         self._ocr = ocr
 
+    @retry(
+        retry=retry_if_exception_type(Exception),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    def _extract_with_retry(self, path: str) -> str:
+        return extract_text(path, self._ocr, self._cfg)
+
     def extract(self, path: str) -> str:
-        raw_text = extract_text(path, self._ocr, self._cfg)
+        try:
+            raw_text = self._extract_with_retry(path)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Extraction failed for {Path(path).name}: {exc}"
+            ) from exc
         return clean_text(raw_text)
 
 
@@ -104,10 +130,100 @@ class FileScanner:
         else:
             print(message)
 
+    def _encode_embeddings(
+        self,
+        embedder: EmbeddingModel,
+        chunks: list[str],
+        *,
+        batch_size: int,
+    ) -> np.ndarray:
+        """Encode chunks to np.ndarray using torch autocast to keep GPU RAM in check."""
+        torch = _get_torch()
+        with (
+            torch.inference_mode(),
+            torch.autocast(
+                "cuda",
+                dtype=torch.float16,
+                enabled=torch.cuda.is_available(),
+            ),
+        ):
+            embs_raw = embedder.encode(
+                chunks,
+                batch_size=batch_size,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+            )
+        embs = np.asarray(embs_raw, dtype=np.float32)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return embs
+
+    def _embed_with_fallback(self, path: str, chunks: list[str]) -> np.ndarray:
+        """Encode chunks with batch-size fallback when CUDA reports OOM."""
+        embedder = self._ctx.embedder
+        torch = _get_torch()
+        try:
+            return self._encode_embeddings(
+                embedder,
+                chunks,
+                batch_size=config.BATCH_SIZE,
+            )
+        except torch.OutOfMemoryError as exc:
+            logger.error(
+                "⚠️  CUDA out of memory during embedding for %s: %s", path, exc
+            )
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            smaller_batch = max(1, config.BATCH_SIZE // config.BATCH_SIZE_RETRY_DIVISOR)
+            logger.info(
+                "🔄 Retrying embedding with smaller batch size: %s", smaller_batch
+            )
+            try:
+                return self._encode_embeddings(
+                    embedder,
+                    chunks,
+                    batch_size=smaller_batch,
+                )
+            except Exception as retry_exc:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                raise RuntimeError(
+                    f"Embedding failed for {Path(path).name} after reducing batch size: {retry_exc}"
+                ) from retry_exc
+        except Exception as exc:
+            raise RuntimeError(
+                f"Embedding failed for {Path(path).name}: {exc}"
+            ) from exc
+
+    @retry(
+        retry=retry_if_exception_type((RuntimeError, ValueError, OSError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    def _embed_chunks_with_retry(self, path: str, chunks: list[str]) -> np.ndarray:
+        return self._embed_with_fallback(path, chunks)
+
+    @retry(
+        retry=retry_if_exception_type((OSError, RuntimeError, ValueError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    def _save_index_with_retry(self, index: FaissIndex) -> None:
+        try:
+            self._faiss_manager.save(index, self._ctx.config.index_path)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to persist FAISS index to {self._ctx.config.index_path}: {exc}"
+            ) from exc
+
     def process_file(
         self,
         path: str,
-        index: faiss.Index | None,
+        index: FaissIndex | None,
         metadata: list[MetadataDict],
         *,
         progress: ConsoleSpinnerProgress | None = None,
@@ -128,68 +244,10 @@ class FileScanner:
                     f"[verbose] {os.path.basename(path)} produced no chunks (extract {extract_time:.2f}s).",
                     progress,
                 )
-            return {"index": index, "chunk_count": 0}
-
-        embs: np.ndarray | None = None
-        embedder = self._ctx.embedder
-        embed_start = time.perf_counter()
-        torch = _get_torch()
-        try:
-            with (
-                torch.inference_mode(),
-                torch.autocast(
-                    "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
-                ),
-            ):
-                embs_raw = embedder.encode(
-                    chunks,
-                    batch_size=config.BATCH_SIZE,
-                    convert_to_numpy=True,
-                    normalize_embeddings=True,
-                )
-                embs = np.asarray(embs_raw, dtype=np.float32)
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-        except torch.OutOfMemoryError as exc:
-            logger.error("⚠️  CUDA out of memory during embedding for %s: %s", path, exc)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            try:
-                smaller_batch = max(
-                    1, config.BATCH_SIZE // config.BATCH_SIZE_RETRY_DIVISOR
-                )
-                logger.info(
-                    "🔄 Retrying embedding with smaller batch size: %s", smaller_batch
-                )
-                with (
-                    torch.inference_mode(),
-                    torch.autocast(
-                        "cuda", dtype=torch.float16, enabled=torch.cuda.is_available()
-                    ),
-                ):
-                    embs_raw = embedder.encode(
-                        chunks,
-                        batch_size=smaller_batch,
-                        convert_to_numpy=True,
-                        normalize_embeddings=True,
-                    )
-                    embs = np.asarray(embs_raw, dtype=np.float32)
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-            except Exception as retry_exc:
-                logger.error(
-                    "⚠️  Failed to embed even with smaller batch for %s: %s",
-                    path,
-                    retry_exc,
-                )
-                if verbose:
-                    self._emit_message(
-                        f"[verbose] Embedding failed for {os.path.basename(path)} even after retry.",
-                        progress,
-                    )
                 return {"index": index, "chunk_count": 0}
 
-        assert embs is not None
+        embed_start = time.perf_counter()
+        embs = self._embed_chunks_with_retry(path, chunks)
         embed_time = time.perf_counter() - embed_start
 
         index_start = time.perf_counter()
@@ -225,6 +283,7 @@ class FileScanner:
 
         chunk_records: list[ChunkRecord] = []
         metadata_entries: list[MetadataDict] = []
+        # Mirror chunk payloads into SQLite records and in-memory metadata for downstream retrieval.
         for i, chunk in enumerate(chunks):
             chunk_records.append(
                 {
@@ -251,7 +310,7 @@ class FileScanner:
         metadata.extend(metadata_entries)
         insert_chunk_records(self._ctx.config.db_path, chunk_records)
 
-        self._faiss_manager.save(index, self._ctx.config.index_path)
+        self._save_index_with_retry(index)
         self._env.cleanup()
         persist_time = time.perf_counter() - persist_start
 
@@ -303,7 +362,7 @@ class FileScanner:
     def scan(
         self,
         root_path: Path,
-        index: faiss.Index | None,
+        index: FaissIndex | None,
         metadata: list[MetadataDict],
         processed: set[str],
         *,
@@ -400,6 +459,7 @@ class FileScanner:
                 else:
                     skipped_problems += 1
                     normalized_reason = self._normalize_skip_reason(reason)
+                    # Track unique skip buckets so summary output highlights repeated issues.
                     skip_reasons[normalized_reason] = (
                         skip_reasons.get(normalized_reason, 0) + 1
                     )
@@ -460,6 +520,7 @@ class FileScanner:
                 if cfg.processed_log:
                     file_hash = calculate_file_hash(path)
                     if file_hash:
+                        # Append file checksum ledger so subsequent runs can skip unchanged sources.
                         with open(cfg.processed_log, "a", encoding="utf-8") as handle:
                             _ = handle.write(f"{file_hash}|{filename}\n")
 
@@ -521,6 +582,7 @@ class FileScanner:
                     _ = handle.write(traceback.format_exc())
                     _ = handle.write(f"\n{'=' * 60}\n")
 
+                # Aggregate fatal failure reasons so callers see problem hotspots in summary output.
                 skip_reasons[friendly_reason] = skip_reasons.get(friendly_reason, 0) + 1
                 self._env.cleanup()
 

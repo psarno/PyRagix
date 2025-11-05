@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager
 # ===============================
 # Third-party Libraries
 # ===============================
-import faiss
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -32,10 +31,9 @@ from rag.embeddings import get_sentence_encoder, l2_normalize, memory_cleanup
 from rag.loader import load_rag_system
 from rag.llm import generate_answer_with_ollama
 from types_models import MetadataDict, RAGConfig, SearchResult
-from utils.faiss_types import has_nprobe
+from utils.faiss_types import FaissIndex, has_nprobe
 from web.models import DimensionalityMethod
 from web.visualization_utils import create_embedding_visualization
-
 
 # ===============================
 # Type Definitions
@@ -43,7 +41,7 @@ from web.visualization_utils import create_embedding_visualization
 class RAGSystemState(TypedDict):
     """Type definition for global RAG system state."""
 
-    index: faiss.Index | None
+    index: FaissIndex | None
     metadata: list[MetadataDict] | None
     embedder: SentenceTransformer | None
     config: RAGConfig | None
@@ -313,7 +311,7 @@ async def query_rag_endpoint(request: QueryRequest):
 
 def _query_rag_with_sources(
     query: str,
-    index: "faiss.Index",
+    index: FaissIndex,
     metadata: Sequence[MetadataDict],
     embedder: "SentenceTransformer",
     config: RAGConfig,

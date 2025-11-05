@@ -24,18 +24,18 @@ from utils.ollama_status import (  # noqa: E402
     ensure_ollama_model_available,
 )
 from utils.spinner import Spinner  # noqa: E402
+from utils.faiss_types import FaissIndex  # noqa: E402
 
 if TYPE_CHECKING:
-    import faiss
     from sentence_transformers import SentenceTransformer
 
 LoadRagSystemFn = Callable[
-    [RAGConfig], tuple["faiss.Index", list[MetadataDict], "SentenceTransformer"]
+    [RAGConfig], tuple[FaissIndex, list[MetadataDict], "SentenceTransformer"]
 ]
 RunQueryFn = Callable[
     [
         str,
-        "faiss.Index",
+        FaissIndex,
         list[MetadataDict],
         "SentenceTransformer",
         RAGConfig,
@@ -128,7 +128,7 @@ def _configure_readline() -> None:
 
 def _query_rag(
     query: str,
-    index: faiss.Index,
+    index: FaissIndex,
     metadata: list[MetadataDict],
     embedder: SentenceTransformer,
     config: RAGConfig,
@@ -210,7 +210,7 @@ def main(
         )
 
         def _load_pipeline() -> tuple[
-            faiss.Index, list[MetadataDict], SentenceTransformer
+            FaissIndex, list[MetadataDict], SentenceTransformer
         ]:
             loader, _ = _ensure_pipeline_loaded()
             return loader(config)

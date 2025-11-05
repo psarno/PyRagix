@@ -1,9 +1,24 @@
+"""SQLite-backed metadata persistence shared across the ingestion pipelines.
+
+The table layout mirrors the .NET port (`pyragix-net`) so both runtimes can
+reason about identical chunk metadata (hashes, ordering, file types). Any
+schema change here must be reflected in the sibling repository and the
+downstream retrieval code that consumes these fields.
+"""
+
 import logging
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Sequence, TypedDict, cast
 
 import sqlite_utils
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 import config
 from types_models import MetadataDict
@@ -12,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 
 class ChunkRecord(TypedDict):
+    """Raw record layout persisted to SQLite for each chunk entry."""
+
     source: str
     chunk_index: int
     text: str
@@ -51,7 +68,7 @@ def load_metadata(db_path: Path) -> list[MetadataDict]:
                 )
             )
         except KeyError as exc:
-            # Fail fast: new schema required
+            # Fail fast: new schema required for parity with the .NET ingestion pipeline.
             error_msg = (
                 f"Database schema is outdated. Missing required field: {exc}. "
                 + "Please re-ingest your documents with: uv run python ingest_folder.py --fresh ./docs"
@@ -61,7 +78,11 @@ def load_metadata(db_path: Path) -> list[MetadataDict]:
 
 
 def insert_chunk_records(db_path: Path, chunk_records: Sequence[ChunkRecord]) -> None:
-    """Ensure the chunks table exists and insert the provided records."""
+    """Ensure the chunks table exists and insert the provided records.
+
+    The schema must stay aligned with `ChunkRecord` and `MetadataDict` to
+    guarantee retrieval components—and the .NET port—see a consistent view.
+    """
     if not chunk_records:
         return
 
@@ -82,6 +103,8 @@ def insert_chunk_records(db_path: Path, chunk_records: Sequence[ChunkRecord]) ->
             },
             pk="id",
         )
+        # Indexes accelerate restarts where we look up by source or detect stale hashes.
+        # Keep index names consistent with the .NET port so migrations remain trivial.
         chunks_table.create_index(["source"])
         chunks_table.create_index(["file_hash"])
 
@@ -89,7 +112,11 @@ def insert_chunk_records(db_path: Path, chunk_records: Sequence[ChunkRecord]) ->
 
 
 def build_bm25_index(metadata: Sequence[MetadataDict]) -> None:
-    """Build and persist the BM25 keyword index when enabled."""
+    """Build and persist the BM25 keyword index when enabled.
+
+    The resulting pickle must live alongside the FAISS index so hybrid retrieval
+    stays transactionally consistent with chunk metadata.
+    """
     if not config.ENABLE_HYBRID_SEARCH:
         logger.info("BM25 indexing disabled (ENABLE_HYBRID_SEARCH=False)")
         return
@@ -97,25 +124,38 @@ def build_bm25_index(metadata: Sequence[MetadataDict]) -> None:
     print("🔨 Building BM25 keyword index...")
     try:
         from utils.bm25_index import build_bm25_index as build, save_bm25_index
-
-        texts = [meta.text for meta in metadata]
-        if not texts:
-            print("⚠️ BM25 indexing skipped: no chunk metadata available.")
-            logger.info("BM25 indexing skipped because metadata list is empty")
-            return
-
-        bm25_index = build(texts)
-        bm25_path = Path(config.BM25_INDEX_PATH)
-        save_bm25_index(bm25_index, bm25_path)
-        print(f"✅ BM25 index saved: {bm25_path} ({len(bm25_index)} documents)")
     except ImportError:
         print(
             "⚠️ BM25 indexing failed: rank-bm25 not installed. "
             + "Run: uv add rank-bm25"
         )
+        return
+
+    texts = [meta.text for meta in metadata]
+    if not texts:
+        print("⚠️ BM25 indexing skipped: no chunk metadata available.")
+        logger.info("BM25 indexing skipped because metadata list is empty")
+        return
+
+    @retry(
+        retry=retry_if_exception_type((RuntimeError, ValueError, OSError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    def _build_and_save() -> None:
+        # Build the BM25 index out-of-process and atomically persist it so hybrid search stays consistent.
+        bm25_index = build(texts)
+        bm25_path = Path(config.BM25_INDEX_PATH)
+        save_bm25_index(bm25_index, bm25_path)
+        print(f"✅ BM25 index saved: {bm25_path} ({len(bm25_index)} documents)")
+
+    try:
+        _build_and_save()
     except Exception as exc:
-        print(f"⚠️ BM25 indexing failed: {exc}")
-        logger.error(f"BM25 index build error: {exc}", exc_info=True)
+        print(f"⚠️ BM25 indexing failed after retries: {exc}")
+        logger.error("BM25 index build error after retries: %s", exc, exc_info=True)
 
 
 __all__ = ["ChunkRecord", "load_metadata", "insert_chunk_records", "build_bm25_index"]

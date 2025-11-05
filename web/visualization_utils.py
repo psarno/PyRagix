@@ -16,23 +16,28 @@ from typing import Any, Literal, Sequence
 # ===============================
 import numpy as np
 import numpy.typing as npt
-import faiss
 from sklearn.manifold import TSNE
 import umap
 
 from rag.embeddings import memory_cleanup
 from types_models import MetadataDict
-from utils.faiss_types import ensure_reconstruct, ensure_xb
+from utils.faiss_importer import faiss
+from utils.faiss_types import (
+    FaissIndex,
+    FloatArray,
+    FloatMatrix,
+    ensure_reconstruct,
+    ensure_xb,
+)
 from web.models import DimensionalityMethod, VisualizationPoint, VisualizationData
 
-FloatArray = npt.NDArray[np.float32]
 EmbeddingArray = npt.NDArray[np.floating[Any]]
 
 
 # ===============================
 # FAISS Embedding Extraction
 # ===============================
-def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> FloatArray:
+def _extract_faiss_embeddings(index: FaissIndex, max_points: int = 1000) -> FloatMatrix:
     """Extract embeddings from FAISS index for visualization."""
     try:
         try:
@@ -49,7 +54,7 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> Flo
             if total_vectors > max_points:
                 indices = np.linspace(0, total_vectors - 1, max_points, dtype=int)
             else:
-                indices = np.arange(total_vectors)
+                indices = np.arange(total_vectors, dtype=int)
 
             reconstructed_vectors: list[FloatArray] = []
             for i in indices:
@@ -81,9 +86,9 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> Flo
                 raise ValueError(f"Unsupported FAISS index type: {type(index)}")
 
             # Flat indices - direct access
-            embeddings_raw = faiss.vector_to_array(xb_data)
+            embeddings_raw = np.asarray(faiss.vector_to_array(xb_data), dtype=np.float32)
             embedding_dim = index.d
-            embeddings_array: FloatArray = embeddings_raw.reshape(
+            embeddings_array: FloatMatrix = embeddings_raw.reshape(
                 -1, embedding_dim
             ).astype(np.float32)
 
@@ -140,7 +145,7 @@ def _apply_dimensionality_reduction(
 def create_embedding_visualization(
     query: str,
     query_embedding: EmbeddingArray,
-    index: faiss.Index,
+    index: FaissIndex,
     metadata: Sequence[MetadataDict],
     retrieved_indices: Sequence[int],
     scores: Sequence[float],

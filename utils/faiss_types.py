@@ -9,13 +9,36 @@ from __future__ import annotations
 
 from typing import Any, Protocol, cast, runtime_checkable
 
-import faiss
-
 import numpy as np
 import numpy.typing as npt
 
-
 FloatArray = npt.NDArray[np.float32]
+FloatMatrix = npt.NDArray[np.float32]
+IntMatrix = npt.NDArray[np.int64]
+
+
+@runtime_checkable
+class FaissIndex(Protocol):
+    """Structural protocol describing the FAISS index surface we rely on."""
+
+    d: int
+    ntotal: int
+    is_trained: bool
+
+    def add(self, x: FloatMatrix) -> None: ...
+
+    def train(self, x: FloatMatrix) -> None: ...
+
+    def search(self, x: FloatMatrix, k: int) -> tuple[FloatMatrix, IntMatrix]: ...
+
+    def reconstruct(self, key: int, recons: FloatArray) -> None: ...
+
+    def reconstruct_n(
+        self,
+        n0: int,
+        ni: int,
+        recons: FloatMatrix,
+    ) -> None: ...
 
 
 @runtime_checkable
@@ -45,14 +68,14 @@ class SupportsReconstruct(Protocol):
 
     def reconstruct(self, key: int, recons: FloatArray) -> None: ...
 
-    def reconstruct_n(self, start: int, count: int, recons: FloatArray) -> None: ...
+    def reconstruct_n(self, start: int, count: int, recons: FloatMatrix) -> None: ...
 
 
 @runtime_checkable
 class SupportsXB(Protocol):
     """Flat indices expose their raw vectors via the xb attribute."""
 
-    xb: FloatArray | None
+    xb: FloatMatrix | None
 
 
 @runtime_checkable
@@ -62,7 +85,7 @@ class SupportsQuantizer(Protocol):
     quantizer: Any
 
 
-def ensure_nprobe(index: faiss.Index, *, context: str) -> SupportsNProbe:
+def ensure_nprobe(index: FaissIndex, *, context: str) -> SupportsNProbe:
     """Ensure the provided index exposes nprobe, raising if it does not.
 
     Args:
@@ -76,7 +99,7 @@ def ensure_nprobe(index: faiss.Index, *, context: str) -> SupportsNProbe:
     return cast(SupportsNProbe, index)
 
 
-def has_nprobe(index: faiss.Index) -> bool:
+def has_nprobe(index: FaissIndex) -> bool:
     """Check whether the index exposes an nprobe attribute."""
     try:
         _ = getattr(index, "nprobe")  # noqa: B018 - attribute existence check
@@ -85,7 +108,7 @@ def has_nprobe(index: faiss.Index) -> bool:
     return True
 
 
-def ensure_reconstruct(index: faiss.Index, *, context: str) -> SupportsReconstruct:
+def ensure_reconstruct(index: FaissIndex, *, context: str) -> SupportsReconstruct:
     """Ensure the provided index can reconstruct stored vectors."""
     reconstruct = getattr(index, "reconstruct", None)
     reconstruct_n = getattr(index, "reconstruct_n", None)
@@ -94,9 +117,27 @@ def ensure_reconstruct(index: faiss.Index, *, context: str) -> SupportsReconstru
     raise TypeError(f"{context} expected reconstruct support")
 
 
-def ensure_xb(index: faiss.Index, *, context: str) -> SupportsXB:
+def ensure_xb(index: FaissIndex, *, context: str) -> SupportsXB:
     """Ensure the provided index exposes xb vectors."""
     xb = getattr(index, "xb", None)
     if xb is None:
         raise TypeError(f"{context} expected xb attribute")
     return cast(SupportsXB, index)
+
+
+__all__ = [
+    "FaissIndex",
+    "FloatArray",
+    "FloatMatrix",
+    "IntMatrix",
+    "SupportsNProbe",
+    "SupportsDevice",
+    "SupportsNList",
+    "SupportsReconstruct",
+    "SupportsXB",
+    "SupportsQuantizer",
+    "ensure_nprobe",
+    "ensure_reconstruct",
+    "ensure_xb",
+    "has_nprobe",
+]

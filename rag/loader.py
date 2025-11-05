@@ -6,11 +6,10 @@ from typing import Any, cast
 import sqlite_utils
 from sentence_transformers import SentenceTransformer
 
-import faiss
-
 from types_models import MetadataDict, RAGConfig
 import config as global_config
-from utils.faiss_types import SupportsDevice, ensure_nprobe
+from utils.faiss_importer import faiss
+from utils.faiss_types import FaissIndex, SupportsDevice, ensure_nprobe
 
 
 def _row_to_metadata(row: Mapping[str, Any]) -> MetadataDict:
@@ -25,7 +24,7 @@ def _row_to_metadata(row: Mapping[str, Any]) -> MetadataDict:
 
 def load_rag_system(
     config: RAGConfig,
-) -> tuple[faiss.Index, list[MetadataDict], SentenceTransformer]:
+) -> tuple[FaissIndex, list[MetadataDict], SentenceTransformer]:
     """Load FAISS index, metadata, and embedder for querying."""
     print("Loading FAISS index and metadata...")
 
@@ -35,7 +34,7 @@ def load_rag_system(
         raise FileNotFoundError(f"Database file not found: {config.db_path}")
 
     try:
-        index = faiss.read_index(str(config.index_path))
+        index = cast(FaissIndex, faiss.read_index(str(config.index_path)))
         try:
             ivf_index = ensure_nprobe(index, context="rag.loader.load_rag_system")
         except TypeError:

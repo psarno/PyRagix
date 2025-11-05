@@ -14,18 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from classes.ProcessingConfig import ProcessingConfig
 from types_models import MetadataDict
+from utils.faiss_types import FaissIndex
 
 if TYPE_CHECKING:
-    import faiss
     from ingestion.faiss_manager import FaissManager
 else:
-    OCRProcessor = Any
     FaissManager = Any
-
-    class _FaissStub:
-        Index = Any
-
-    faiss = _FaissStub()
 
 
 class PDFRect(Protocol):
@@ -242,7 +236,7 @@ class EmbeddingModel(Protocol):
 
 
 class ProcessingStats(TypedDict):
-    index: faiss.Index | None
+    index: FaissIndex | None
     file_count: int
     chunk_total: int
     skipped_already_processed: int
@@ -252,7 +246,7 @@ class ProcessingStats(TypedDict):
 
 
 class ProcessingResult(TypedDict):
-    index: faiss.Index | None
+    index: FaissIndex | None
     chunk_count: int
 
 
@@ -266,7 +260,7 @@ class IngestionContext(BaseModel):
     ocr: OCRProcessorProtocol
     embedder: EmbeddingModel
     faiss_manager: "FaissManager"
-    index: faiss.Index | None = None
+    index: FaissIndex | None = None
     metadata: list[MetadataDict] = Field(
         default_factory=lambda: cast(list[MetadataDict], [])
     )
@@ -277,7 +271,7 @@ class IngestionContext(BaseModel):
     def with_index(
         self,
         *,
-        index: faiss.Index | None | object = _UNSET,
+        index: FaissIndex | None | object = _UNSET,
         metadata: list[MetadataDict] | None | object = _UNSET,
         processed_hashes: set[str] | None | object = _UNSET,
     ) -> "IngestionContext":
