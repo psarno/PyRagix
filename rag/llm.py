@@ -60,6 +60,7 @@ def generate_answer_with_ollama(
     """Call the Ollama HTTP API with contextualized prompt including metadata."""
     formatted_chunks: list[str] = []
     doc_index_map: "OrderedDict[str, int]" = OrderedDict()
+    # Assign deterministic numeric handles per document so the LLM can cite sources.
     for result in search_results:
         source_name = Path(result.source).name
         if source_name not in doc_index_map:
@@ -100,6 +101,7 @@ def generate_answer_with_ollama(
         Response:"""
     )
 
+    # Temperature and sampling limits mirror config.toml inputs so the HTTP call stays stateless.
     payload: dict[str, Any] = {
         "model": config.ollama_model,
         "prompt": prompt,

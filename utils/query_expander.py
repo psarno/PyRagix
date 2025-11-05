@@ -86,7 +86,7 @@ Variants:"""
                 if line and len(line) > 5:  # Ignore very short lines
                     variants.append(line)
 
-            # Always include original query
+            # Always include original query to guarantee at least one viable search term.
             all_variants = [query] + variants[:num_variants]
 
             logger.info(f"Expanded query into {len(all_variants)} variants")

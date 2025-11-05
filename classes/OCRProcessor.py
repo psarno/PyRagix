@@ -1,7 +1,12 @@
-# ======================================
-# OCR Processing Module
-# Handles all OCR operations with PaddleOCR
-# ======================================
+"""High-level OCR orchestration with PaddleOCR.
+
+The ingestion pipeline leans on this module to keep Paddle's global state
+contained: noisy glog output is muted before the native libraries load, cache
+locations are surfaced to the operator, and CUDA DLL search paths are patched
+on Windows so PaddleOCR can discover NVIDIA runtimes.  Public methods favour
+defensive memory management because OCR commonly runs alongside PDF rendering
+and FAISS embedding in the same process.
+"""
 
 import gc
 import logging
@@ -58,6 +63,7 @@ if sys.platform == "win32":
     ]:
         bin_path = os.path.join(base, sub, "bin")
         if os.path.isdir(bin_path):
+            # Ensure Paddle finds CUDA DLLs when Python is installed via the store.
             _ = os.add_dll_directory(bin_path)
 
 # Set up logger
@@ -75,7 +81,12 @@ class OCRProcessor:
         self.ocr = self._init_ocr()
 
     def _init_ocr(self) -> PaddleOCR:
-        """Initialize PaddleOCR with appropriate settings."""
+        """Initialize PaddleOCR with project defaults and log device metadata.
+
+        PaddleOCR must be constructed after environment variables are enforced
+        (see `ingestion.environment.EnvironmentManager`) otherwise threads,
+        CUDA visibility, or glog verbosity may drift from configured values.
+        """
         # Suppress PaddleOCR warnings
         logging.getLogger("paddleocr").setLevel(logging.ERROR)
 

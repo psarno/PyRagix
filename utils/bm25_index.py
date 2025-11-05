@@ -1,32 +1,22 @@
+"""BM25 keyword-lookup helpers shared with the .NET hybrid retrieval flow.
+
+Both runtimes depend on identical tokenisation (lowercase + whitespace) and on
+`rank-bm25`'s scoring semantics so that FAISS/BM25 fusion yields comparable
+weights regardless of language implementation.  Any changes to the persistence
+format or tokenisation rules must be mirrored in `pyragix-net`.
+"""
+
 from typing import Protocol
 import pickle
 import logging
 from pathlib import Path
 from collections.abc import Sequence
 
-"""
-BM25 Keyword Search Index Module
-
-Implements BM25 (Best Matching 25) keyword search for hybrid retrieval.
-BM25 complements semantic (FAISS) search by excelling at exact term matches.
-
-Typical use cases where BM25 outperforms semantic embeddings:
-- Queries with specific dates, IDs, names, technical terms
-- Acronyms and abbreviations
-- Exact phrase matching
-
-Architecture:
-- Uses rank-bm25 pure Python implementation (zero infrastructure)
-- Tokenization: simple whitespace + lowercase (matches FAISS chunking)
-- Serialization: pickle for fast save/load
-- Integration: scores fused with FAISS scores via weighted average
-"""
-
 # BM25 import (lazy to avoid startup cost if not enabled)
 try:
     from rank_bm25 import BM25Okapi
 except ImportError:
-    BM25Okapi = None
+    BM25Okapi = None  # Deferred failure: only raised when callers actually build the index.
 
 logger = logging.getLogger(__name__)
 

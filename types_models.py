@@ -85,6 +85,7 @@ class RAGConfig(BaseModel):
     def _convert_to_path(cls, v: Any) -> Path:
         """Convert string paths to Path objects."""
         if isinstance(v, str):
+            # Allow TOML/CLI inputs to remain simple strings while internally standardizing on Path objects.
             return Path(v)
         return v
 
@@ -163,9 +164,11 @@ class RerankingResult(BaseModel):
 # Legacy support: provide dict-compatible types for existing code
 def rag_config_to_dict(config: RAGConfig) -> dict[str, Any]:
     """Convert RAGConfig to dict for backward compatibility."""
+    # Some legacy utilities still expect primitive dicts instead of BaseModel instances.
     return config.model_dump()
 
 
 def search_result_to_dict(result: SearchResult) -> dict[str, Any]:
     """Convert SearchResult to dict for backward compatibility."""
+    # Exclude optional hybrid scores when unused to keep payloads compact for JSON logging.
     return result.model_dump(exclude_none=True)

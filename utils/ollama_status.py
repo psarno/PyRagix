@@ -25,6 +25,7 @@ def _normalize_base_url(base_url: str) -> str:
 
 
 def _fetch_available_models(base_url: str, timeout: float) -> Iterable[str]:
+    # Request the tag list once and let callers handle retries/backoff.
     response = requests.get(f"{base_url}/api/tags", timeout=timeout)
     if response.status_code != 200:
         status_code = response.status_code
@@ -53,6 +54,7 @@ def ensure_ollama_model_available(
     normalized_url = _normalize_base_url(base_url)
     cached = _STATUS_CACHE.get(normalized_url)
     if cached and model in cached.available_models:
+        # Happy path: reuse cached probe so subsequent queries don't hammer Ollama.
         return cached
 
     try:

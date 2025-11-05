@@ -1,3 +1,12 @@
+"""File-level skip heuristics shared across the Python and .NET ingesters.
+
+The ingestion pipeline prunes oversized, already-processed, or unsupported
+documents before extraction.  These checks must stay in sync with the
+`pyragix-net` implementation so both runtimes interpret `processed_files.txt`,
+FAISS metadata, and skip lists identically.  Any changes here likely require a
+matching update in the sibling repository.
+"""
+
 import hashlib
 import logging
 import os
@@ -31,6 +40,7 @@ def calculate_file_hash(path: str) -> str:
         chunk_size = 256 * 1024
     else:
         chunk_size = 1024 * 1024
+    # Scale the read buffer so very large files don't dominate memory while hashing.
 
     digest = hashlib.sha256()
     try:
@@ -61,6 +71,7 @@ def should_skip_file(
         return True, f"unsupported file type: {ext}"
 
     file_hash = calculate_file_hash(path)
+    # The hash ledger de-duplicates reruns even when files move across folders.
     if file_hash and file_hash in processed:
         return True, "already processed"
 
@@ -100,6 +111,7 @@ def load_processed_files(cfg: ProcessingConfig) -> set[str]:
             for line in handle:
                 line = line.strip()
                 if line and "|" in line:
+                    # Ledger rows follow "<hash>|<timestamp>" to mirror the .NET port layout.
                     try:
                         file_hash, _ = line.split("|", 1)
                         processed_hashes.add(file_hash)
@@ -121,6 +133,7 @@ def load_processed_files(cfg: ProcessingConfig) -> set[str]:
         with open(log_path, "w", encoding="utf-8") as handle:
             for line in lines:
                 _ = handle.write(f"{line}\n")
+        # The log is now normalized to UTF-8 so subsequent loads avoid repeated fallback attempts.
         return load_processed_files(cfg)
 
     return processed_hashes
@@ -138,6 +151,7 @@ def detect_stale_documents(
     current_hashes: set[str] = set()
     for file_path in current_files:
         if file_path.is_file():
+            # Recompute hashes from disk to verify the processed ledger still matches the filesystem.
             try:
                 file_hash = calculate_file_hash(str(file_path))
                 if file_hash:
@@ -259,10 +273,12 @@ def clean_stale_entries(stale_files: list[str], cfg: ProcessingConfig) -> None:
                         ),
                     ]
                 )
+            # Include basename and relative variants because ingestion historically persisted both forms.
 
             if stale_sources:
                 placeholders = ",".join(["?" for _ in stale_sources])
                 query = f"DELETE FROM chunks WHERE source IN ({placeholders})"
+                # Use parameterized deletion so both full paths and filenames get purged safely.
                 _ = db.execute(query, stale_sources)
 
                 cursor: Cursor = db.execute("SELECT changes()")

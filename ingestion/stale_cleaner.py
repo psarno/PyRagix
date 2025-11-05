@@ -1,3 +1,11 @@
+"""Detect and reconcile stale ingestion artifacts before new runs.
+
+The processed ledger (`processed_files.txt`) must stay aligned with the on-disk
+corpus; otherwise hybrid retrieval will surface dead chunks.  This helper
+mirrors the .NET port's behaviour so both runtimes prompt operators with the
+same options (fresh start, clean, append) when hashes drift or files go missing.
+"""
+
 import logging
 from pathlib import Path
 
@@ -23,12 +31,12 @@ class StaleDocumentCleaner:
         processed_hashes: set[str],
         current_files: list[Path],
     ) -> tuple[bool, set[str]]:
-        """
-        Check for stale documents and prompt user for action.
+        """Check for stale documents and prompt the operator to reconcile them.
 
-        Returns:
-            Tuple of (fresh_start_requested, updated_processed_hashes)
-            where fresh_start_requested=True means user chose fresh start.
+        Returns a tuple ``(fresh_start_requested, updated_hashes)`` so the
+        caller can decide whether to blow away indices or continue appending.
+        ``updated_hashes`` reflects on-disk mutations when the operator chooses
+        to remove stale entries.
         """
         if not processed_hashes:
             logger.info("No processed files to check for staleness")
@@ -63,9 +71,10 @@ class StaleDocumentCleaner:
         if user_choice == "clean":
             print("🧹 User chose clean - removing stale entries")
             clean_stale_entries(stale_files, self.config)
-            # Reload processed files after cleanup
+            # Reload processed files after cleanup.
             from ingestion.file_filters import load_processed_files
 
+            # Reloading keeps the caller aligned with whatever rows survived the cleanup.
             return False, load_processed_files(self.config)
 
         # user_choice == "append" - keep existing data

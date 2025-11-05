@@ -1,3 +1,13 @@
+"""Utilities for extracting and chunking document text ahead of embedding.
+
+The ingestion pipeline consumes a mix of PDFs, HTML, and raster images.  This
+module centralises the heuristics that decide when native text extraction is
+usable, how to fall back to OCR, and how to transform the resulting text into
+chunks sized for either semantic or fixed-size embedding strategies.  Keeping
+these transforms together makes it easier to audit memory usage boundaries and
+reproduce the same behaviour in the .NET port.
+"""
+
 import logging
 import math
 from io import BytesIO
@@ -115,6 +125,7 @@ def extract_text(path: str, ocr: OCRProcessorProtocol, cfg: ProcessingConfig) ->
 
 
 def _html_to_text(path: str) -> str:
+    """Convert an HTML file to text, stripping scripts/styles for clean chunks."""
     parser = "lxml"
     try:
         import lxml  # type: ignore[import-untyped]
@@ -139,6 +150,7 @@ def safe_dpi_for_page(
     max_side: int | None = None,
     base_dpi: int | None = None,
 ) -> int:
+    """Calculate a DPI that caps rendered pixels and side length for OCR tiles."""
     if max_pixels is None:
         max_pixels = cfg.max_pixels
     if max_side is None:
@@ -174,6 +186,7 @@ def _pdf_page_text_or_ocr(
     *,
     doc: fitz.Document | None = None,
 ) -> str:
+    """Attempt text extraction first, falling back to OCR when quality is poor."""
     text = page.get_text("text") or ""
     if _extracted_text_is_usable(text):
         return text
@@ -219,6 +232,7 @@ def _pdf_page_text_or_ocr(
 def _extract_from_pdf(
     path: str, ocr: OCRProcessorProtocol, cfg: ProcessingConfig
 ) -> str:
+    """Iterate pages and run extraction/OCR, tolerating per-page failures."""
     pages: list[str] = []
     with fitz.open(path) as doc:
         for page in doc:

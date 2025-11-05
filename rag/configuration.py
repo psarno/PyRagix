@@ -7,6 +7,7 @@ import config
 from types_models import RAGConfig
 
 
+# Seed runtime defaults from the shared config module so CLI scripts can hydrate config quickly.
 DEFAULT_CONFIG = RAGConfig(
     embed_model=config.EMBED_MODEL,
     index_path=Path("local_faiss.index"),
@@ -66,6 +67,7 @@ def validate_config(config_obj: RAGConfig) -> None:
         raise ValueError("request_timeout must be positive")
 
     if _looks_like_local_path(config_obj.embed_model):
+        # When an explicit model path is provided ensure it exists before SentenceTransformer loads it.
         embed_path = Path(config_obj.embed_model).expanduser().resolve()
         if not embed_path.exists():
             raise FileNotFoundError(
@@ -73,16 +75,19 @@ def validate_config(config_obj: RAGConfig) -> None:
             )
 
     if not config_obj.index_path.exists():
+        # Query CLI cannot recover if the vector index is missing, so escalate early.
         raise FileNotFoundError(
             f"FAISS index not found at {config_obj.index_path}. Run the ingestion pipeline before querying."
         )
 
     if not config_obj.db_path.exists():
+        # The metadata database stores chunk text and must stay in lockstep with FAISS indices.
         raise FileNotFoundError(
             f"Metadata database not found at {config_obj.db_path}. Run the ingestion pipeline before querying."
         )
 
     if config_obj.enable_hybrid_search:
+        # Hybrid mode depends on the BM25 pickle built during ingestion; missing file means stale config.
         bm25_path = Path(config_obj.bm25_index_path).expanduser()
         if not bm25_path.exists():
             raise FileNotFoundError(
