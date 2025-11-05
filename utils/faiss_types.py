@@ -43,11 +43,9 @@ class SupportsNList(Protocol):
 class SupportsReconstruct(Protocol):
     """Indices that can reconstruct stored vectors."""
 
-    def reconstruct(self, key: int, recons: FloatArray) -> None:
-        ...
+    def reconstruct(self, key: int, recons: FloatArray) -> None: ...
 
-    def reconstruct_n(self, start: int, count: int, recons: FloatArray) -> None:
-        ...
+    def reconstruct_n(self, start: int, count: int, recons: FloatArray) -> None: ...
 
 
 @runtime_checkable
@@ -87,9 +85,7 @@ def has_nprobe(index: faiss.Index) -> bool:
     return True
 
 
-def ensure_reconstruct(
-    index: faiss.Index, *, context: str
-) -> SupportsReconstruct:
+def ensure_reconstruct(index: faiss.Index, *, context: str) -> SupportsReconstruct:
     """Ensure the provided index can reconstruct stored vectors."""
     reconstruct = getattr(index, "reconstruct", None)
     reconstruct_n = getattr(index, "reconstruct_n", None)

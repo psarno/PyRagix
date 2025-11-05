@@ -209,7 +209,9 @@ def main(
             ),
         )
 
-        def _load_pipeline() -> tuple[faiss.Index, list[MetadataDict], SentenceTransformer]:
+        def _load_pipeline() -> tuple[
+            faiss.Index, list[MetadataDict], SentenceTransformer
+        ]:
             loader, _ = _ensure_pipeline_loaded()
             return loader(config)
 

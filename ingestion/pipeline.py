@@ -203,7 +203,9 @@ def build_index(
 
     try:
         if progress.enabled:
-            progress.start(stage=IngestionStage.SCANNING, message="Scanning documents...")
+            progress.start(
+                stage=IngestionStage.SCANNING, message="Scanning documents..."
+            )
             progress.update(
                 files_completed=0,
                 chunk_total=chunk_total,
@@ -227,9 +229,7 @@ def build_index(
         skipped_problems = stats["skipped_problems"]
         skip_reasons = stats["skip_reasons"]
         total_candidates = stats["candidate_total"]
-        files_seen = (
-            file_count + skipped_already_processed + skipped_problems
-        )
+        files_seen = file_count + skipped_already_processed + skipped_problems
 
         if progress.enabled:
             progress.update(

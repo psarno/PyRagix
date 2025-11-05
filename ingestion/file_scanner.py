@@ -36,6 +36,7 @@ def _get_torch():
 
     return torch
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -440,9 +441,7 @@ class FileScanner:
             else:
                 print(f"Processing: {path}")
             if verbose:
-                self._emit_message(
-                    f"[verbose] Starting {filename}", progress_obj
-                )
+                self._emit_message(f"[verbose] Starting {filename}", progress_obj)
 
             try:
                 file_count += 1
@@ -498,9 +497,7 @@ class FileScanner:
                 error_type = type(exc).__name__
                 error_msg = str(exc)
                 friendly_reason = self._normalize_skip_reason(error_type)
-                message = (
-                    f"⚠️ Failed: {filename} - {error_type}: {error_msg[:100]}"
-                )
+                message = f"⚠️ Failed: {filename} - {error_type}: {error_msg[:100]}"
 
                 if progress_obj:
                     progress_obj.update(

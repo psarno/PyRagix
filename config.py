@@ -29,9 +29,7 @@ class PyRagixConfig(BaseModel):
 
     # GPU / CUDA
     CUDA_VISIBLE_DEVICES: str = "0"
-    PYTORCH_ALLOC_CONF: str = (
-        "max_split_size_mb:1024,garbage_collection_threshold:0.9"
-    )
+    PYTORCH_ALLOC_CONF: str = "max_split_size_mb:1024,garbage_collection_threshold:0.9"
     FAISS_DISABLE_CPU: str = "1"
     CUDA_LAUNCH_BLOCKING: str = "0"
 

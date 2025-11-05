@@ -73,7 +73,9 @@ def _extract_faiss_embeddings(index: faiss.Index, max_points: int = 1000) -> Flo
                 )
                 xb_data = xb_index.xb
             except TypeError as exc:
-                raise ValueError(f"Unsupported FAISS index type: {type(index)}") from exc
+                raise ValueError(
+                    f"Unsupported FAISS index type: {type(index)}"
+                ) from exc
 
             if xb_data is None:
                 raise ValueError(f"Unsupported FAISS index type: {type(index)}")

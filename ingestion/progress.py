@@ -59,7 +59,9 @@ class _ProgressSnapshot:
 class ConsoleSpinnerProgress:
     """Renders a lightweight spinner with status updates during ingestion."""
 
-    def __init__(self, *, enabled: Optional[bool] = None, interval: float = 0.12) -> None:
+    def __init__(
+        self, *, enabled: Optional[bool] = None, interval: float = 0.12
+    ) -> None:
         super().__init__()
         self._enabled = sys.stdout.isatty() if enabled is None else enabled
         self._interval = max(interval, 0.05)
@@ -142,7 +144,9 @@ class ConsoleSpinnerProgress:
             if chunk_total is not None:
                 self._snapshot.chunk_total = max(chunk_total, 0)
             if skipped_already_processed is not None:
-                self._snapshot.skipped_already_processed = max(skipped_already_processed, 0)
+                self._snapshot.skipped_already_processed = max(
+                    skipped_already_processed, 0
+                )
             if skipped_problems is not None:
                 self._snapshot.skipped_problems = max(skipped_problems, 0)
 

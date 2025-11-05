@@ -22,6 +22,7 @@ def _get_sentence_transformer():
 
     return SentenceTransformer
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -56,6 +57,7 @@ class EnvironmentManager:
         os.environ["GLOG_minloglevel"] = "2"
 
         import paddle
+
         torch = _get_torch()
 
         for logger_name in [

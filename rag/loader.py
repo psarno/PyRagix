@@ -12,6 +12,7 @@ from types_models import MetadataDict, RAGConfig
 import config as global_config
 from utils.faiss_types import SupportsDevice, ensure_nprobe
 
+
 def _row_to_metadata(row: Mapping[str, Any]) -> MetadataDict:
     return MetadataDict(
         source=str(row["source"]),
@@ -63,10 +64,14 @@ def load_rag_system(
             )
 
         unique_sources = len(set(m.source for m in metadata))
-        device_info = "GPU" if isinstance(index, SupportsDevice) and index.device >= 0 else "CPU"
+        device_info = (
+            "GPU" if isinstance(index, SupportsDevice) and index.device >= 0 else "CPU"
+        )
 
         if is_ivf_index:
-            current_ivf = ensure_nprobe(index, context="rag.loader.load_rag_system (report)")
+            current_ivf = ensure_nprobe(
+                index, context="rag.loader.load_rag_system (report)"
+            )
             nprobe = current_ivf.nprobe
             print(
                 f"Loaded {index.ntotal} chunks from {unique_sources} files "

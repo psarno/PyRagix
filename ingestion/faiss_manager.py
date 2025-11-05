@@ -137,7 +137,9 @@ class FaissManager:
             training_success = self.train(new_index, all_vectors)
             if training_success:
                 try:
-                    ivf_index = ensure_nprobe(new_index, context="FaissManager.maybe_retrain")
+                    ivf_index = ensure_nprobe(
+                        new_index, context="FaissManager.maybe_retrain"
+                    )
                 except TypeError:
                     pass
                 else:
@@ -162,7 +164,9 @@ class FaissManager:
                 index = gpu_index
 
         try:
-            ivf_index = ensure_nprobe(index, context="FaissManager.prepare_loaded_index")
+            ivf_index = ensure_nprobe(
+                index, context="FaissManager.prepare_loaded_index"
+            )
         except TypeError:
             pass
         else:

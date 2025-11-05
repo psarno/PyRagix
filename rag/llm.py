@@ -37,7 +37,9 @@ class _RetryableOllamaError(RuntimeError):
     wait=wait_exponential(multiplier=1, min=1, max=5),
     reraise=True,
 )
-def _post_with_retry(url: str, payload: dict[str, Any], timeout: int) -> requests.Response:
+def _post_with_retry(
+    url: str, payload: dict[str, Any], timeout: int
+) -> requests.Response:
     """Issue a POST request to Ollama, retrying on transient failures."""
     response = requests.post(url, json=payload, timeout=timeout)
 
