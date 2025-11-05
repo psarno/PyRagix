@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import os
 import warnings
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 # Suppress misleading PaddlePaddle ccache warning BEFORE any imports
 # (only relevant when building from source, not using pre-built wheels)
@@ -14,19 +16,20 @@ _ = os.environ.setdefault("ONEDNN_VERBOSE", "0")  # oneDNN verbose output
 
 if TYPE_CHECKING:  # pragma: no cover - import hints only
     from ingestion.environment import EnvironmentManager
+    from ingestion.models import IngestionContext
 
 
-_ENV_MANAGER: "EnvironmentManager" | None = None
+_env_manager: EnvironmentManager | None = None
 
 
-def _get_env_manager() -> "EnvironmentManager":
+def _get_env_manager() -> EnvironmentManager:
     """Instantiate EnvironmentManager lazily to avoid eager heavy imports."""
-    global _ENV_MANAGER
-    if _ENV_MANAGER is None:
+    global _env_manager
+    if _env_manager is None:
         from ingestion.environment import EnvironmentManager
 
-        _ENV_MANAGER = EnvironmentManager()
-    return _ENV_MANAGER
+        _env_manager = EnvironmentManager()
+    return _env_manager
 
 
 def _get_cli_main() -> Callable[[], None]:
@@ -45,12 +48,12 @@ def apply_user_configuration() -> None:
     _get_env_manager().apply()
 
 
-def create_context():
+def create_context() -> IngestionContext:
     """Backwards-compatible helper to retrieve an ingestion context."""
     return _get_env_manager().initialize()
 
 
-def build_index(*args, **kwargs):
+def build_index(*args: Any, **kwargs: Any) -> Any:
     """Lazy proxy to the ingestion pipeline build_index function."""
     from ingestion.pipeline import build_index as _build_index
 

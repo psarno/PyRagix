@@ -1,12 +1,53 @@
 """LLM interaction helpers."""
 
+from collections import OrderedDict
 from pathlib import Path
 from textwrap import dedent
-from collections import OrderedDict
+from typing import Any
 
 import requests
+from tenacity import (
+    RetryError,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from types_models import RAGConfig, SearchResult
+
+
+class _RetryableOllamaError(RuntimeError):
+    """Exception raised when Ollama responds with a retryable status code."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+@retry(
+    retry=retry_if_exception_type(
+        (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            _RetryableOllamaError,
+        )
+    ),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=5),
+    reraise=True,
+)
+def _post_with_retry(url: str, payload: dict[str, Any], timeout: int) -> requests.Response:
+    """Issue a POST request to Ollama, retrying on transient failures."""
+    response = requests.post(url, json=payload, timeout=timeout)
+
+    if response.status_code in {429, 500, 502, 503, 504}:
+        raise _RetryableOllamaError(
+            response.status_code,
+            f"Ollama responded with HTTP {response.status_code}.",
+        )
+
+    return response
 
 
 def generate_answer_with_ollama(
@@ -57,34 +98,55 @@ def generate_answer_with_ollama(
         Response:"""
     )
 
+    payload: dict[str, Any] = {
+        "model": config.ollama_model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": config.temperature,
+            "top_p": config.top_p,
+            "num_predict": config.max_tokens,
+        },
+    }
+
+    url = f"{config.ollama_base_url}/api/generate"
+
     try:
-        response = requests.post(
-            f"{config.ollama_base_url}/api/generate",
-            json={
-                "model": config.ollama_model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": config.temperature,
-                    "top_p": config.top_p,
-                    "num_predict": config.max_tokens,
-                },
-            },
-            timeout=config.request_timeout,
-        )
-
-        if response.status_code == 200:
-            result = response.json()
-            return result.get("response", "Sorry, I couldn't generate an answer.")
-
-        return f"Error calling Ollama API: {response.status_code}"
-
+        response = _post_with_retry(url, payload, config.request_timeout)
+    except RetryError as retry_exc:
+        last_error = retry_exc.last_attempt.exception()
+        if isinstance(last_error, requests.exceptions.ConnectionError):
+            return "WARNING: Ollama is not running. Please start Ollama first with: ollama serve"
+        if isinstance(last_error, requests.exceptions.Timeout):
+            return "WARNING: Request timed out. The model might be loading or the query is too complex."
+        if isinstance(last_error, _RetryableOllamaError):
+            return (
+                "WARNING: Ollama API kept returning server errors "
+                f"(HTTP {last_error.status_code}). Check the model or server logs."
+            )
+        if isinstance(last_error, requests.exceptions.RequestException):
+            return f"WARNING: Request error: {last_error}"
+        return f"WARNING: Unexpected error generating answer: {last_error}"
     except requests.exceptions.ConnectionError:
         return "WARNING: Ollama is not running. Please start Ollama first with: ollama serve"
     except requests.exceptions.Timeout:
         return "WARNING: Request timed out. The model might be loading or the query is too complex."
     except requests.exceptions.RequestException as exc:
         return f"WARNING: Request error: {exc}"
+
+    try:
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("response", "Sorry, I couldn't generate an answer.")
+
+        if response.status_code == 404:
+            return (
+                "WARNING: Ollama could not find the requested model. "
+                f"Install it with `ollama pull {config.ollama_model}`."
+            )
+
+        return f"Error calling Ollama API: {response.status_code}"
+
     except (KeyError, ValueError) as exc:
         return f"WARNING: Configuration or response parsing error: {exc}"
     except Exception as exc:

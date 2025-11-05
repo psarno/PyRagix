@@ -27,6 +27,29 @@ _reranker: Reranker | None = None
 _bm25_index: BM25Index | None = None
 
 
+def compute_dynamic_hybrid_alpha(query: str, base_alpha: float) -> float:
+    """Adjust hybrid weighting based on query complexity."""
+    stripped = query.strip()
+    if not stripped:
+        return max(0.0, min(1.0, base_alpha))
+
+    words = [token for token in stripped.split() if token]
+    if not words:
+        return max(0.0, min(1.0, base_alpha))
+
+    word_count = len(words)
+    short_alpha = max(0.1, min(1.0, base_alpha - 0.25))
+    long_alpha = max(0.0, min(1.0, base_alpha + 0.15))
+
+    if word_count <= 3:
+        return short_alpha
+    if word_count >= 12:
+        return long_alpha
+
+    ratio = (word_count - 3) / (12 - 3)
+    return short_alpha + ratio * (long_alpha - short_alpha)
+
+
 def _get_reranker() -> Reranker:
     global _reranker
     if _reranker is None:
@@ -174,7 +197,8 @@ def query_rag(
                     }
 
                     fused_results: list[SearchResult] = []
-                    alpha = config_obj.hybrid_alpha
+                    base_alpha = config_obj.hybrid_alpha
+                    alpha = compute_dynamic_hybrid_alpha(query, base_alpha)
 
                     for faiss_result in sources_info:
                         # Direct O(1) lookup using captured metadata_idx
@@ -200,8 +224,13 @@ def query_rag(
 
                     if debug:
                         print(
-                            f"   Fused with alpha={alpha} "
-                            + f"(semantic={alpha}, keyword={1 - alpha})"
+                            f"   Fused with alpha={alpha:.2f} "
+                            + f"(semantic={alpha:.2f}, keyword={1 - alpha:.2f})"
+                            + (
+                                ""
+                                if abs(alpha - base_alpha) < 1e-6
+                                else f" [base {base_alpha:.2f}]"
+                            )
                         )
 
                 except Exception as exc:
@@ -260,4 +289,4 @@ def query_rag(
         return None
 
 
-__all__ = ["query_rag"]
+__all__ = ["query_rag", "compute_dynamic_hybrid_alpha"]

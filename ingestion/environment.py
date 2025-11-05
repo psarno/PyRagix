@@ -2,19 +2,16 @@ import gc
 import logging
 import os
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Iterator, cast
+from typing import Iterator, cast
 
 import config
 from classes.ProcessingConfig import ProcessingConfig
 from ingestion.models import EmbeddingModel, IngestionContext
 
-if TYPE_CHECKING:  # pragma: no cover - import for type checking only
-    import torch
-
 
 def _get_torch():
     """Import torch lazily to avoid heavy startup cost."""
-    import torch  # type: ignore
+    import torch
 
     return torch
 

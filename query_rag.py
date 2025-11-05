@@ -56,12 +56,12 @@ def _parse_cli_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Interactive console for querying the PyRagix knowledge base.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--no-spinner",
         action="store_true",
         help="Disable startup spinners (useful for logging or slow terminals).",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--verbose",
         action="store_true",
         help="Print timing information for startup steps.",
@@ -199,7 +199,7 @@ def main(
             sys.stdout.isatty() if enable_spinner is None else enable_spinner
         )
 
-        _run_with_feedback(
+        _ = _run_with_feedback(
             "Checking Ollama availability...",
             "✅ Ollama ready.",
             spinner_enabled=spinner_enabled,
@@ -253,7 +253,9 @@ def main(
         sys.exit(1)
     except FileNotFoundError as exc:
         print(f"❌ File not found: {exc}")
-        print("Make sure you've run ingest_folder.py first!")
+        message = str(exc)
+        if "FAISS index" in message or "Metadata database" in message:
+            print("Make sure you've run ingest_folder.py first!")
         sys.exit(1)
     except ValueError as exc:
         print(f"❌ Configuration error: {exc}")

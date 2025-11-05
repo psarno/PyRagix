@@ -29,11 +29,10 @@ from utils.faiss_types import ensure_nprobe
 
 if TYPE_CHECKING:
     import faiss
-    import torch
 
 
 def _get_torch():
-    import torch  # type: ignore
+    import torch
 
     return torch
 

@@ -21,11 +21,12 @@ if TYPE_CHECKING:
     )
     from .loader import load_rag_system
     from .llm import generate_answer_with_ollama
-    from .retrieval import query_rag
+    from .retrieval import compute_dynamic_hybrid_alpha, query_rag
 
 __all__ = [
     "DEFAULT_CONFIG",
     "FloatArray",
+    "compute_dynamic_hybrid_alpha",
     "generate_answer_with_ollama",
     "get_sentence_encoder",
     "l2_normalize",
@@ -40,6 +41,7 @@ _IMPORT_MAP = {
     "validate_config": ("rag.configuration", "validate_config"),
     "load_rag_system": ("rag.loader", "load_rag_system"),
     "query_rag": ("rag.retrieval", "query_rag"),
+    "compute_dynamic_hybrid_alpha": ("rag.retrieval", "compute_dynamic_hybrid_alpha"),
     "generate_answer_with_ollama": ("rag.llm", "generate_answer_with_ollama"),
     "FloatArray": ("rag.embeddings", "FloatArray"),
     "get_sentence_encoder": ("rag.embeddings", "get_sentence_encoder"),

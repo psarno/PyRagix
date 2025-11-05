@@ -19,7 +19,7 @@ User Query
   ↓
 Multi-Query Expansion (3-5 variants via local LLM)
   ↓
-Hybrid Search (FAISS semantic 70% + BM25 keyword 30%)
+Hybrid Search (FAISS semantic + BM25 keyword with dynamic weighting)
   ↓
 Cross-Encoder Reranking (top-20 → top-7 by relevance)
   ↓
@@ -52,7 +52,7 @@ This architecture delivers 20-30% improved recall through query expansion, 15-25
 ### Modern RAG Techniques
 - **Query Expansion**: Generates multiple query variants to capture diverse phrasing and improve recall on ambiguous questions
 - **Cross-Encoder Reranking**: Re-scores retrieved chunks using a specialized relevance model for precision
-- **Hybrid Search**: Combines semantic similarity (FAISS) with keyword matching (BM25) for balanced retrieval
+- **Hybrid Search**: Combines semantic similarity (FAISS) with keyword matching (BM25) using dynamic weighting tuned to the query
 - **Semantic Chunking**: Respects sentence and paragraph boundaries to preserve context coherence
 
 ### Privacy-First Architecture
@@ -191,6 +191,8 @@ ollama serve
 ```bash
 # Ingest documents (builds FAISS + BM25 indexes)
 uv run python ingest_folder.py --fresh ./docs
+
+# The CLI now validates that FAISS/BM25 artifacts exist before querying.
 
 # Start web interface (compiles TypeScript frontend and starts server)
 ./dev.sh

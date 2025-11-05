@@ -1,5 +1,6 @@
 """Configuration helpers for the RAG system."""
 
+from __future__ import annotations
 from pathlib import Path
 
 import config
@@ -28,13 +29,65 @@ DEFAULT_CONFIG = RAGConfig(
 )
 
 
+def _looks_like_local_path(value: str) -> bool:
+    """Heuristic to determine whether a string refers to a local filesystem path."""
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return True
+
+    # Windows drive-relative forms (e.g., "C:\\..." or "C:/...")
+    if (
+        len(value) > 2
+        and value[1] == ":"
+        and value[0].isalpha()
+        and value[2] in ("\\", "/")
+    ):
+        return True
+
+    if value.startswith(("~", "./", "../", ".\\", "..\\")):
+        return True
+
+    if "\\" in value:
+        return True
+
+    # Common model file suffixes.
+    if candidate.suffix.lower() in {".bin", ".pt", ".onnx", ".gguf", ".json"}:
+        return True
+
+    return False
+
+
 def validate_config(config_obj: RAGConfig) -> None:
-    """Perform lightweight runtime validation on top of Pydantic checks."""
+    """Perform runtime validation on top of Pydantic checks."""
     if config_obj.default_top_k <= 0:
         raise ValueError("default_top_k must be positive")
 
     if config_obj.request_timeout <= 0:
         raise ValueError("request_timeout must be positive")
+
+    if _looks_like_local_path(config_obj.embed_model):
+        embed_path = Path(config_obj.embed_model).expanduser().resolve()
+        if not embed_path.exists():
+            raise FileNotFoundError(
+                f"Embedding model file or directory not found: {embed_path}. Update EMBED_MODEL in settings.toml."
+            )
+
+    if not config_obj.index_path.exists():
+        raise FileNotFoundError(
+            f"FAISS index not found at {config_obj.index_path}. Run the ingestion pipeline before querying."
+        )
+
+    if not config_obj.db_path.exists():
+        raise FileNotFoundError(
+            f"Metadata database not found at {config_obj.db_path}. Run the ingestion pipeline before querying."
+        )
+
+    if config_obj.enable_hybrid_search:
+        bm25_path = Path(config_obj.bm25_index_path).expanduser()
+        if not bm25_path.exists():
+            raise FileNotFoundError(
+                f"Hybrid search is enabled but BM25 index '{bm25_path}' is missing. Re-run ingestion with hybrid search enabled to regenerate the index."
+            )
 
 
 __all__ = ["DEFAULT_CONFIG", "validate_config"]
