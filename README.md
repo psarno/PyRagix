@@ -212,6 +212,7 @@ ollama serve
 ```bash
 # Ingest documents (builds FAISS + BM25 indexes)
 uv run python ingest_folder.py --fresh ./docs
+# Append --verbose to stream per-file timings instead of the default spinner-driven progress UI.
 
 # The CLI now validates that FAISS/BM25 artifacts exist before querying.
 
@@ -220,7 +221,8 @@ uv run python ingest_folder.py --fresh ./docs
 # Open http://localhost:8000/web/
 
 # Or use console interface
-uv run python query_rag.py
+uv run python query_rag.py --verbose
+# Use --no-spinner if your terminal does not support carriage returns.
 ```
 
 ## Configuration
@@ -253,7 +255,7 @@ SEMANTIC_CHUNK_OVERLAP = 200
 
 **Reranking**: Enable `ENABLE_RERANKING: true` to re-score retrieved chunks with a cross-encoder model. This improves precision by 15-25% by filtering out keyword-matched but semantically irrelevant chunks. `RERANK_TOP_K` controls the candidate pool size (default: 20).
 
-**Hybrid Search**: Set `ENABLE_HYBRID_SEARCH: true` to combine FAISS semantic search with BM25 keyword matching. This dramatically improves structured queries (names, dates, IDs) by 30-40%. `HYBRID_ALPHA` controls the fusion weight (0.7 = 70% semantic, 30% keyword).
+**Hybrid Search**: Set `ENABLE_HYBRID_SEARCH: true` to combine FAISS semantic search with BM25 keyword matching. This dramatically improves structured queries (names, dates, IDs) by 30-40%. `HYBRID_ALPHA` provides the baseline fusion weight (0.7 = 70% semantic, 30% keyword), and PyRagix dynamically adjusts this balance per query length for better recall.
 
 **Semantic Chunking**: Enable `ENABLE_SEMANTIC_CHUNKING: true` to chunk documents at sentence boundaries instead of fixed character counts. This preserves context coherence and improves answer quality.
 
@@ -326,7 +328,7 @@ SKIP_FILES = ["*.tmp", "backup_*", "archive/*"]
 
 ### FAISS Index Optimization
 
-PyRagix uses IVF (Inverted File) indexing by default for fast search on large corpora:
+PyRagix ships with IVF (Inverted File) indexing enabled in the default settings for fast search on large corpora, while automatically falling back to flat indexing when the corpus is small or IVF training fails:
 
 ```toml
 [faiss]
@@ -359,73 +361,49 @@ PyRagix uses a modular architecture with clear separation of concerns:
 
 ```
 PyRagix/
-├── ingest_folder.py        # Document ingestion CLI (thin wrapper)
-├── query_rag.py           # Console query CLI (thin wrapper)
-├── web_server.py          # FastAPI web server
-├── dev.sh                 # Development script (compiles TypeScript + starts server)
-├── config.py              # Configuration management
-├── settings.toml          # User configuration (auto-generated, TOML format)
-├── settings.example.toml  # Configuration template
-├── types_models.py        # Shared Pydantic models (MetadataDict, etc.)
+├── ingest_folder.py         # Document ingestion CLI wrapper
+├── query_rag.py             # Console query CLI with spinner/Ollama checks
+├── dev.sh                   # Frontend build + FastAPI server launcher
+├── config.py                # Pydantic-backed runtime configuration
+├── types_models.py          # Shared Pydantic models (MetadataDict, RAGConfig, etc.)
+├── CHANGELOG.md             # Release notes
 │
-├── ingestion/             # Document Processing Pipeline (11 modules)
-│   ├── __init__.py        # Package exports
-│   ├── cli.py             # CLI argument parsing
-│   ├── environment.py     # Environment setup (torch, GPU detection)
-│   ├── faiss_manager.py   # FAISS index management (IVF, flat)
-│   ├── file_filters.py    # File type detection and filtering
-│   ├── file_scanner.py    # Recursive document discovery
-│   ├── metadata_store.py  # SQLite metadata database
-│   ├── models.py          # Protocol definitions (PDFPage, OCRProcessorProtocol, etc.)
-│   ├── pipeline.py        # Main ingestion orchestration
-│   ├── stale_cleaner.py   # Remove outdated chunks
-│   └── text_processing.py # Text extraction (PDF, HTML, OCR)
+├── ingestion/               # Document processing pipeline
+│   ├── cli.py               # CLI argument parsing and path safety guards
+│   ├── environment.py       # Environment tuning and shared context creation
+│   ├── faiss_manager.py     # FAISS index creation/persistence helpers
+│   ├── file_scanner.py      # Extraction, chunking, embedding, persistence
+│   ├── progress.py          # Spinner-based progress reporting
+│   ├── pipeline.py          # Top-level orchestration + BM25 rebuild
+│   └── ...                  # metadata_store.py, text_processing.py, stale_cleaner.py, etc.
 │
-├── rag/                   # Query Pipeline (5 modules)
-│   ├── __init__.py        # Package exports
-│   ├── configuration.py   # RAGConfig Pydantic model
-│   ├── embeddings.py      # Embedding model initialization
-│   ├── llm.py             # Ollama LLM client
-│   ├── loader.py          # FAISS/BM25 index loading
-│   └── retrieval.py       # Multi-stage retrieval (hybrid, rerank)
+├── rag/                     # Query-time retrieval pipeline
+│   ├── configuration.py     # Runtime defaults + validation
+│   ├── loader.py            # Load FAISS/metadata/embedder
+│   ├── llm.py               # Ollama client with retry/backoff
+│   ├── retrieval.py         # Hybrid retrieval, dynamic alpha, reranking
+│   └── __init__.py          # Lazy re-exports to avoid heavy imports
 │
-├── utils/                 # RAG Utilities (3 modules)
-│   ├── __init__.py        # Package exports
-│   ├── bm25_index.py      # BM25 keyword search
-│   ├── query_expander.py  # Multi-query expansion via LLM
-│   └── reranker.py        # Cross-encoder reranking
+├── utils/                   # Shared utilities
+│   ├── bm25_index.py        # BM25 persistence and search helpers
+│   ├── faiss_importer.py    # Centralised FAISS import/warning suppression
+│   ├── faiss_types.py       # Protocols for FAISS type safety
+│   ├── ollama_status.py     # Ollama health probes and caching
+│   ├── query_expander.py    # Multi-query expansion via Ollama
+│   ├── reranker.py          # Cross-encoder reranker wrapper
+│   └── spinner.py           # Lightweight CLI spinner
 │
-├── classes/               # Core Processing Classes
-│   ├── ProcessingConfig.py # Ingestion configuration dataclass
-│   └── OCRProcessor.py     # PaddleOCR wrapper
+├── web/                     # Web UI + API server
+│   ├── server.py            # FastAPI server with health + visualization endpoints
+│   ├── visualization_utils.py # Embedding visualization helpers
+│   └── ...                  # TypeScript sources, static assets, dev scripts
 │
-├── typings/               # Type Stubs for Third-Party Libraries
-│   ├── faiss/             # FAISS C++ bindings
-│   ├── fitz/              # PyMuPDF (fitz)
-│   ├── paddleocr/         # PaddleOCR
-│   ├── rank_bm25/         # BM25 library
-│   ├── sklearn/           # scikit-learn
-│   ├── sqlite_utils/      # SQLite utilities
-│   ├── lxml/              # XML/HTML parser
-│   └── umap/              # UMAP dimensionality reduction
-│
-├── tests/                 # Pytest Test Suite
-│   ├── conftest.py        # Shared fixtures (temp dirs, mocks)
-│   ├── test_config.py     # Configuration validation tests
-│   ├── test_environment.py # Environment setup tests
-│   ├── test_faiss_manager.py # FAISS indexing tests
-│   ├── test_file_filters.py # File type detection tests
-│   ├── test_file_scanner.py # Document discovery tests
-│   └── test_text_processing.py # Text extraction tests
-│
-├── web/                   # Web Interface (TypeScript)
-│   ├── index.html         # Main UI page
-│   ├── style.css          # Responsive styling
-│   ├── script.ts          # TypeScript source (type-safe API client)
-│   └── tsconfig.json      # TypeScript configuration (compile with dev.sh)
-│
-├── pyrightconfig.json     # Pyright strict type checking config
-└── uv.lock               # Dependency lock file
+├── tests/                   # Pytest suite
+│   ├── test_rag_configuration.py   # Runtime validation coverage
+│   ├── test_retrieval_dynamic_alpha.py # Dynamic hybrid alpha tests
+│   └── ...                  # Ingestion/environment regression tests
+└── typings/                 # Third-party type stubs (keep pyright --strict green)
+    └── ...
 ```
 
 **Architecture Highlights:**
@@ -466,6 +444,7 @@ PyRagix uses modern Python 3.13+ with strict type safety. All dependencies manag
 - **umap-learn**: Dimensionality reduction (visualization)
 - **psutil**: System resource monitoring
 - **requests**: HTTP client
+- **tenacity**: Resilient retry/backoff decorators for Ollama and ingestion pipelines
 
 **Development Tools:**
 - **pyright**: Strict static type checking
