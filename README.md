@@ -2,14 +2,17 @@
 
 # PyRagix
 
-A local-first Retrieval-Augmented Generation (RAG) system built with modern techniques from academic research and production deployments. PyRagix implements query expansion, cross-encoder reranking, hybrid search (semantic + keyword), and semantic chunking to deliver state-of-the-art retrieval quality while maintaining complete data privacy through local-only operation.
+PyRagix is a local-first, educational Retrieval-Augmented Generation (RAG) project that demonstrates how to compose modern retrieval techniques end-to-end. It implements query expansion, cross-encoder reranking, hybrid search (semantic + keyword), and semantic chunking so you can study how these pieces fit together without relying on hosted services.
 
-Built for both performance and privacy, PyRagix runs entirely on your infrastructure with zero external API dependencies for document processing and search. All AI operations leverage local models via Ollama, ensuring your documents never leave your control.
+The project favors transparency over magic. Everything runs on your workstation using Ollama-served models, FAISS, and BM25. You can inspect each step, tweak the configuration, and use the codebase as a reference when building your own privacy-respecting RAG stack.
 
-Looking for a cross-platform .NET solution?  See [pyragix-net](https://github.com/psarno/pyragix-net)!
+Looking for a cross-platform .NET companion? See [pyragix-net](https://github.com/psarno/pyragix-net)!
 
 ![Python](https://img.shields.io/badge/python-3.13+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
+
+> [!IMPORTANT]
+> This repo is designed as a hands-on reference. Expect readable modules, strict typing, and pragmatic defaults rather than a turnkey "enterprise" deployment.
 
 ## Architecture
 
@@ -68,6 +71,12 @@ This architecture delivers 20-30% improved recall through query expansion, 15-25
 - Memory-efficient numpy array operations
 
 ## Key Features
+
+### Learning-Focused Design
+- **Traceable Pipelines**: Separate modules for ingestion, retrieval, and orchestration make it easy to step through each stage.
+- **Strict Typing as Documentation**: `pyright --strict` doubles as living documentation for data flow and contracts.
+- **Configurable Experiments**: Toggle query expansion, reranking, and hybrid search individually to see how each affects results.
+- **Local-Only Stack**: Reproduce experiments without API keys or rate limits—perfect for classrooms, workshops, and internal trainings.
 
 ### Modern RAG Techniques
 - **Query Expansion**: Generates multiple query variants to capture diverse phrasing and improve recall on ambiguous questions
@@ -469,25 +478,25 @@ All dependencies are pinned to minimum versions. PyRagix requires Python 3.13+ a
 
 ## Why PyRagix?
 
-**Privacy**: Unlike cloud-based RAG services, PyRagix processes everything locally. Your documents, queries, and generated answers never leave your infrastructure.
+**Hands-on Learning**: Trace how ingestion, retrieval, reranking, and generation work by reading approachable, well-typed modules.
 
-**Performance**: Modern RAG techniques (query expansion, reranking, hybrid search) deliver enterprise-grade retrieval quality previously only available through expensive cloud APIs.
+**Privacy by Default**: All processing stays on your workstation or lab machine—ideal for demos where data cannot leave the room.
 
-**Flexibility**: Every component is configurable and swappable. Use your preferred LLM, embedding model, or retrieval strategy.
+**Configurable Experiments**: Toggle features, swap models, and observe how each change impacts retrieval and answer quality.
 
-**Transparency**: Open-source Python codebase with clear documentation. Understand exactly how your RAG system works.
+**Transparency**: The entire stack is Python with strict typing and tests, making it easier to reason about than black-box services.
 
-**Cost**: Zero runtime costs beyond your hardware. No per-query API fees, no subscription tiers.
+**Affordable Exploration**: No per-query API fees or vendor lock-in. If you have hardware that can run Ollama, you can run PyRagix.
 
-**Control**: Version your models, control your deployment, audit your data flows. Perfect for regulated industries.
+**Path to Production**: While scoped for education, the patterns (metadata store, hybrid retrieval, retries) mirror those used in larger systems, giving you a blueprint for future scaling efforts.
 
 ## Use Cases
 
-- **Enterprise Knowledge Management**: Index internal documentation, wikis, and knowledge bases with complete data privacy
-- **Legal Document Analysis**: Process contracts, case files, and legal research with confidentiality
-- **Medical Research**: Search clinical notes, research papers, and patient data (HIPAA-compliant when properly deployed)
-- **Software Documentation**: Build internal developer knowledge bases from code, docs, and tickets
-- **Personal Knowledge Management**: Create private search engines over personal notes, books, and research
+- **Workshops & Study Groups**: Walk learners through each stage of a RAG stack without cloud dependencies or hidden services.
+- **Internal Knowledge Prototypes**: Stand up proof-of-concept search experiences over private wikis before investing in heavier tooling.
+- **Legal / Regulated Labs**: Experiment with RAG techniques on sensitive corpora that must stay on-prem.
+- **Engineering Enablement**: Teach platform teams how retrieval quality improves with expansion, hybrid search, and reranking toggles.
+- **Personal Knowledge Management**: Create private search engines over personal notes, books, and research with full control.
 
 ## CI/CD
 
