@@ -39,7 +39,3 @@ web/script.js.map
 
 # Document formats
 *.pdf
-
-# AI Agents
-**/CLAUDE.md
-**/AGENTS.md
