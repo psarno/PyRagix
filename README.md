@@ -22,7 +22,7 @@ PyRagix implements coordinated ingestion and query pipelines that stay in sync t
 
 ```mermaid
 flowchart TD
-    Q["User query"] --> Validate["Runtime checks<br/>(config, FAISS, BM25, Ollama)"]
+    Q["User query"] --> Validate["Runtime checks<br/>config<br/>FAISS<br/>BM25<br/>Ollama"]
     Validate --> Expand{"Query expansion enabled?"}
     Expand -->|Yes| Gen["Generate rewrites via Ollama"]
     Gen --> Variants["Aggregate original + rewrites"]
@@ -44,8 +44,8 @@ flowchart TD
 flowchart TD
     Start["ingest_folder CLI"] --> Env["Environment manager<br/>applies runtime settings"]
     Env --> Stale["Detect stale documents<br/>and choose strategy"]
-    Stale --> Scan["Scan filesystem + skip rules<br/>(extension filter, SHA256 dedupe)"]
-    Scan --> Extract["Extract text<br/>(PyMuPDF, BeautifulSoup, PaddleOCR)"]
+    Stale --> Scan["Scan filesystem + skip rules<br/>extension filter<br/>SHA256 dedupe"]
+    Scan --> Extract["Extract text<br/>PyMuPDF<br/>BeautifulSoup<br/>PaddleOCR"]
     Extract --> Chunk["Semantic chunking<br/>(sentence-aware)"]
     Chunk --> Embed["Embed chunks<br/>(SentenceTransformer)"]
     Embed --> Index{"Existing FAISS index?"}
